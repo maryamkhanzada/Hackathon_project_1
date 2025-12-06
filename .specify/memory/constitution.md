@@ -1,55 +1,64 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!-- Sync Impact Report:
+Version change: 0.0.0 -> 0.1.0
+Modified principles:
+  - PRINCIPLE_1_NAME -> Spec-driven writing
+  - PRINCIPLE_2_NAME -> Technical accuracy
+  - PRINCIPLE_3_NAME -> Clarity
+  - PRINCIPLE_4_NAME -> Reproducibility
+  - PRINCIPLE_5_NAME -> Tool-first workflow
+Added sections: Standards, Constraints
+Removed sections:
+Templates requiring updates:
+  - .specify/templates/plan-template.md: ⚠ pending
+  - .specify/templates/spec-template.md: ⚠ pending
+  - .specify/templates/tasks-template.md: ⚠ pending
+  - .specify/templates/commands/*.md: ⚠ pending
+Follow-up TODOs: none
+-->
+# AI/Spec-Driven Book Creation using Docusaurus + GitHub Pages + Spec-Kit Plus + Claude Code Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### Spec-driven writing
+All decisions and changes must be documented; no undocumented decisions.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### Technical accuracy
+All code and configuration must be tested and verified for technical accuracy.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### Clarity
+Content must be beginner–intermediate friendly, ensuring easy understanding for the target audience.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### Reproducibility
+Every step and example provided must be fully reproducible by readers without issues.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### Tool-first workflow
+The entire book creation and development process must utilize Spec-Kit Plus + Claude Code throughout.
 
-### [PRINCIPLE_6_NAME]
+## Standards
 
+- All commands and code examples must be verified locally before inclusion.
+- Consistent versions of development tools (Node, Docusaurus, Git) must be maintained.
+- All code blocks provided in the book must be copy-paste ready and executable.
+- Proper folder structure and naming conventions must be followed.
+- No hallucinated features or content will be included.
+- Must include relevant examples, exercises, and diagrams to enhance learning.
 
-[PRINCIPLE__DESCRIPTION]
+## Constraints
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
-
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
-
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
-
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- The project must be built with Docusaurus and successfully pass `npm run build`.
+- The book must be deployed on GitHub Pages.
+- The book must contain a minimum of 8 chapters, with each chapter having at least 3 sections.
+- The total length of the book must be between 15,000 and 25,000 words.
+- The readability level of the content must be between grade 8 and 12.
+- All content must be original, ensuring zero plagiarism.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- All specifications must be completed and approved before implementation.
+- Code implemented must work exactly as written and described in the book.
+- The Docusaurus build process must complete with 0 errors.
+- Deployment to GitHub Pages must be successful.
+- Chapters are clear, consistent, and reproducible.
+- The Spec-Kit Plus history must be clean and organized.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 0.1.0 | **Ratified**: 2025-12-05 | **Last Amended**: 2025-12-05
