@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(.specify/scripts/bash/create-phr.sh:*)",
-      "Bash(.specify/scripts/powershell/setup-plan.ps1:*)"
+      "Bash(.specify/scripts/powershell/setup-plan.ps1:*)",
+      "Bash(mcp task create:*)"
     ],
     "deny": [],
     "ask": []
