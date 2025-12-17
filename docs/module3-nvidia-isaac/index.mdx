@@ -1,0 +1,253 @@
+# Module 3: The AI-Robot Brain (NVIDIA Isaac)
+
+Welcome to Module 3! Here you'll explore the **NVIDIA Isaac platform**—a comprehensive ecosystem that brings AI-powered perception, photorealistic simulation, and hardware-accelerated processing to humanoid robots.
+
+## What is NVIDIA Isaac?
+
+**NVIDIA Isaac** is an end-to-end platform for developing, simulating, and deploying AI-powered robots[^1]. It consists of three main components:
+
+### 1. Isaac Sim: Photorealistic Simulation
+
+**Isaac Sim** is built on NVIDIA Omniverse and provides:
+- **Photorealistic rendering**: RTX ray tracing for true-to-life visuals
+- **Accurate physics**: PhysX 5.0 for precise robot dynamics
+- **Sensor simulation**: Cameras, LiDAR, radar with realistic characteristics
+- **Synthetic data generation**: Training data for AI models at scale
+
+Unlike Gazebo (Module 2), Isaac Sim excels at **visual realism** and **AI model training**, making it ideal for computer vision and deep learning workflows.
+
+### 2. Isaac ROS: Hardware-Accelerated Perception
+
+**Isaac ROS** provides GPU-accelerated ROS 2 packages for:
+- **Visual SLAM**: Real-time localization and mapping
+- **Depth perception**: Stereo and time-of-flight processing
+- **Object detection**: DNN-based recognition
+- **Image processing**: GPU-accelerated computer vision pipelines
+
+Key benefit: **10-100x faster** than CPU-only implementations[^2].
+
+### 3. Isaac Gym: RL Training at Scale
+
+**Isaac Gym** enables massively parallel reinforcement learning:
+- Thousands of robot simulations simultaneously
+- GPU-accelerated physics (no CPU bottleneck)
+- Direct-to-GPU pipeline (no data copying)
+- Integration with RL frameworks (RL Games, Stable Baselines)
+
+Trains locomotion policies in **minutes** vs. hours/days with traditional approaches.
+
+## Why NVIDIA Isaac for Humanoid Robots?
+
+Humanoid robots require **real-time AI** for:
+
+**Perception**:
+- Recognizing objects, people, and obstacles
+- Understanding 3D scene geometry
+- Tracking moving targets
+
+**Navigation**:
+- Path planning in dynamic environments
+- Obstacle avoidance with sensor fusion
+- Localization without GPS
+
+**Manipulation**:
+- Grasping unknown objects
+- Visual servoing for precise control
+- Adaptive force control
+
+**Learning**:
+- Training walking gaits via RL
+- Imitation learning from human demonstrations
+- Continuous improvement from experience
+
+NVIDIA Isaac provides **GPU acceleration** essential for these real-time AI workloads.
+
+## Module Overview
+
+This module covers the NVIDIA Isaac ecosystem from first principles to advanced AI integration.
+
+### 1. [Isaac Platform Overview](./isaac-platform-overview.mdx)
+Understanding the Isaac ecosystem:
+- Isaac Sim vs. Gazebo vs. Unity
+- Isaac ROS architecture and packages
+- Isaac Gym for parallel RL
+- Omniverse integration and collaboration
+- Hardware requirements (Jetson, desktop GPUs)
+
+### 2. [Photorealistic Simulation with Isaac Sim](./isaac-sim-photorealistic.mdx)
+Building realistic virtual environments:
+- Installing and launching Isaac Sim
+- Creating photorealistic scenes
+- Importing robot models (URDF, USD format)
+- Camera and LiDAR sensor simulation
+- Synthetic data generation for training
+
+### 3. [Isaac ROS for Perception](./isaac-ros-perception.mdx)
+Hardware-accelerated computer vision:
+- Installing Isaac ROS on Ubuntu/Jetson
+- Visual SLAM (VSLAM) for localization
+- Stereo depth perception
+- DNN-based object detection (DOPE, DetectNet)
+- Integration with ROS 2 navigation stack
+
+### 4. [Navigation & Path Planning with Nav2](./nav2-path-planning.mdx)
+Autonomous navigation fundamentals:
+- Nav2 architecture and components
+- Costmap generation from sensors
+- Global and local planners
+- Behavior trees for decision making
+- Integration with Isaac ROS sensors
+
+### 5. [Reinforcement Learning Basics](./rl-robot-control.mdx)
+Training robots through trial and error:
+- RL fundamentals (states, actions, rewards)
+- Policy networks for robot control
+- Training humanoid walking with Isaac Gym
+- Sim-to-real transfer considerations
+- Practical RL frameworks (Stable Baselines3)
+
+### 6. [AI Perception Pipeline Lab](./ai-perception-pipeline-lab.mdx)
+Hands-on: Building an integrated AI system:
+- Setting up Isaac Sim with humanoid robot
+- Configuring Isaac ROS perception pipeline
+- Object detection and tracking
+- Navigating to detected objects
+- Complete end-to-end demonstration
+
+### 7. [Sim-to-Real Transfer](./sim-to-real-transfer.mdx)
+Bridging simulation and reality:
+- Sources of sim-to-real gap
+- Domain randomization techniques
+- System identification from real data
+- Validation protocols
+- Case studies from industry
+
+## Learning Outcomes
+
+By the end of this module, you will be able to:
+
+✅ **Explain** the NVIDIA Isaac platform components and their roles
+✅ **Install and configure** Isaac Sim on your workstation
+✅ **Create** photorealistic simulation environments
+✅ **Implement** Isaac ROS perception pipelines (VSLAM, depth, detection)
+✅ **Configure** Nav2 for autonomous navigation
+✅ **Understand** reinforcement learning fundamentals for robot control
+✅ **Build** complete AI perception pipeline for humanoid robots
+✅ **Address** sim-to-real transfer challenges
+
+## Prerequisites
+
+Before starting this module:
+
+- **Module 1 Complete**: ROS 2 fundamentals, URDF modeling
+- **Module 2 Complete**: Gazebo simulation, sensor integration
+- **Hardware Requirements**:
+  - **GPU**: NVIDIA RTX 2070 or better (RTX 3080+ recommended)
+  - **RAM**: 16GB minimum (32GB recommended)
+  - **Storage**: 50GB free for Isaac Sim installation
+  - **OS**: Ubuntu 22.04 LTS preferred
+- **Software**: Docker (optional but recommended for Isaac ROS)
+- **Basic Python**: Familiarity with PyTorch/TensorFlow helpful but not required
+
+:::warning GPU Requirement
+
+Unlike Gazebo (which runs on integrated graphics), **Isaac Sim requires an NVIDIA GPU**. For laptop users without dedicated NVIDIA GPU:
+- Use **NVIDIA Cloud XR** for remote streaming
+- Access **AWS G4 instances** with GPU
+- Utilize **Google Colab** Pro with GPU runtime (limited functionality)
+
+:::
+
+## Isaac vs. Gazebo: When to Use Each?
+
+| Feature | Gazebo | Isaac Sim |
+|---------|--------|-----------|
+| **Physics Accuracy** | Excellent | Excellent |
+| **Visual Realism** | Basic | Photorealistic (RTX ray tracing) |
+| **ROS Integration** | Native | Via Isaac ROS bridge |
+| **GPU Acceleration** | Limited | Full (physics + rendering) |
+| **AI/ML Workflows** | Manual | Integrated (synthetic data, RL) |
+| **Hardware Requirement** | Low (CPU-based) | High (NVIDIA GPU required) |
+| **Use Cases** | Navigation, control dev | Computer vision, RL training |
+| **License** | Free (Apache) | Free for development |
+
+**Recommendation**: Use **both** simulators:
+- **Gazebo** for rapid prototyping, control development, and testing
+- **Isaac Sim** for training perception models and visual AI development
+
+## NVIDIA Isaac in Industry
+
+Leading robotics companies use Isaac platform:
+
+- **Amazon Robotics**: Warehouse robot navigation and manipulation
+- **Boston Dynamics**: Spot's perception stack uses GPU-accelerated vision
+- **Agility Robotics**: Digit trained with RL in Isaac Gym
+- **BMW**: Factory automation with Isaac for bin picking
+- **Waymo**: Autonomous vehicle simulation for edge cases
+
+NVIDIA's hardware-software co-design enables **real-time AI** previously impossible with CPU-only systems.
+
+## The AI Revolution in Robotics
+
+Traditional robotics relied on **hand-engineered algorithms**:
+- Manually tuned PID controllers
+- Hardcoded object detection thresholds
+- Brittle perception pipelines
+
+Modern AI-powered robotics uses **learned behaviors**:
+- Neural networks trained on thousands of examples
+- Policies that generalize to new situations
+- Self-improving systems via continuous learning
+
+NVIDIA Isaac democratizes this AI approach, bringing techniques from research labs to practitioners.
+
+## Module Structure
+
+This module follows a progressive path:
+
+1. **Platform Foundation** → Understand Isaac ecosystem and architecture
+2. **Simulation Mastery** → Build photorealistic environments in Isaac Sim
+3. **Perception Pipeline** → Implement GPU-accelerated computer vision
+4. **Navigation Integration** → Autonomous movement with Nav2
+5. **Learning Basics** → Train behaviors via reinforcement learning
+6. **Integration Lab** → Complete AI-powered humanoid system
+7. **Real-World Deployment** → Bridge simulation to physical hardware
+
+Each section includes:
+- 📖 **Conceptual Foundations**: AI and robotics theory
+- 🛠️ **Installation Guides**: Step-by-step setup
+- 💻 **Code Examples**: Production-ready implementations
+- 🔬 **Lab Exercises**: Hands-on AI experiments
+
+## Getting Help
+
+Resources for this module:
+
+- **Isaac Sim Documentation**: [https://docs.omniverse.nvidia.com/isaacsim/latest/](https://docs.omniverse.nvidia.com/isaacsim/latest/)
+- **Isaac ROS Documentation**: [https://nvidia-isaac-ros.github.io/](https://nvidia-isaac-ros.github.io/)
+- **NVIDIA Developer Forums**: [https://forums.developer.nvidia.com/c/agx-autonomous-machines/isaac/](https://forums.developer.nvidia.com/c/agx-autonomous-machines/isaac/)
+- **Isaac GitHub**: [https://github.com/NVIDIA-ISAAC-ROS](https://github.com/NVIDIA-ISAAC-ROS)
+- **[Glossary](/docs/appendices/glossary)**: Isaac-specific terminology
+- **[Lab Setup Tips](/docs/appendices/lab-setup-tips)**: GPU and Docker troubleshooting
+
+:::info NVIDIA Jetson
+
+While this module uses desktop GPU (RTX series), the same Isaac ROS packages run on **NVIDIA Jetson** embedded computers (Orin, Xavier). This enables deploying AI perception directly on the robot.
+
+:::
+
+## Ready to Start?
+
+Let's begin with [Isaac Platform Overview](./isaac-platform-overview.mdx) to understand the ecosystem architecture and choose the right tools for your humanoid robot project!
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). NVIDIA Isaac: Platform for Robotics. *NVIDIA Developer*. https://developer.nvidia.com/isaac
+
+[^2]: Macenski, S., et al. (2023). Evaluating the Performance of Isaac ROS Stereo Visual Odometry. *IEEE Robotics and Automation Letters*, 8(10), 6574-6581.
+
+[^3]: Makoviychuk, V., et al. (2021). Isaac Gym: High Performance GPU-Based Physics Simulation For Robot Learning. *arXiv preprint arXiv:2108.10470*.
+
+[^4]: Murali, A., et al. (2023). NVIDIA Isaac Sim: Simulation for Robotics and Synthetic Data Generation. *Proceedings of the IEEE Conference on Robotics and Automation (ICRA)*.

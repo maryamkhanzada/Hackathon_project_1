@@ -1,0 +1,511 @@
+# Reinforcement Learning for Robot Control
+
+Reinforcement learning (RL) enables robots to learn complex behaviors through trial and error. This section covers RL fundamentals, Isaac Gym for training, and deploying policies to real robots.
+
+## What is Reinforcement Learning?
+
+**Reinforcement Learning** trains agents to make sequential decisions by maximizing cumulative reward[^1].
+
+### Core Concepts
+
+**Agent**: The robot (humanoid in our case)
+**Environment**: Simulation (Isaac Gym) or real world
+**State (s)**: Current robot configuration (joint positions, velocities, orientation)
+**Action (a)**: Control command (joint torques or target positions)
+**Reward (r)**: Scalar feedback signal (positive for progress, negative for falls)
+**Policy (π)**: Mapping from states to actions: `a = π(s)`
+
+### The RL Loop
+
+```
+1. Observe current state: s_t
+2. Policy selects action: a_t = π(s_t)
+3. Environment steps: s_{t+1}, r_t = env.step(a_t)
+4. Store experience: (s_t, a_t, r_t, s_{t+1})
+5. Update policy to maximize cumulative reward
+6. Repeat
+```
+
+### Value Functions
+
+**State Value** V(s): Expected cumulative reward from state s
+**Action Value** Q(s, a): Expected reward from taking action a in state s
+**Advantage** A(s, a) = Q(s, a) - V(s): How much better action a is than average
+
+## RL Algorithms for Robotics
+
+### Policy Gradient Methods
+
+**REINFORCE** (basic):
+```
+∇J(θ) = E[∇log π_θ(a|s) * R]
+```
+Update policy in direction of higher rewards.
+
+**Actor-Critic** (improved):
+- **Actor**: Policy π_θ(a|s)
+- **Critic**: Value function V_φ(s)
+- Advantage: A(s,a) = r + γV(s') - V(s)
+
+**PPO (Proximal Policy Optimization)** (state-of-the-art)[^2]:
+```python
+# Clipped objective prevents large policy updates
+L_CLIP(θ) = E[min(r_t(θ)Â_t, clip(r_t(θ), 1-ε, 1+ε)Â_t)]
+where r_t(θ) = π_θ(a_t|s_t) / π_θ_old(a_t|s_t)
+```
+
+**Benefits of PPO**:
+- Stable training (small policy updates)
+- Sample efficient
+- Works well for continuous control
+- Industry standard for robotics
+
+### Comparison Table
+
+| Algorithm | Sample Efficiency | Stability | Use Case |
+|-----------|-------------------|-----------|----------|
+| **REINFORCE** | Low | Low | Simple tasks |
+| **A2C/A3C** | Medium | Medium | Multi-task |
+| **PPO** | High | High | **Recommended for robotics** |
+| **SAC** | Very High | High | Off-policy fine-tuning |
+| **TD3** | Very High | Medium | Deterministic control |
+
+## Isaac Gym for RL Training
+
+### Why Isaac Gym?
+
+Traditional RL training:
+```
+for epoch in epochs:
+    for env in environments:  # 10-100 envs on CPU
+        obs, reward = env.step(action)  # SLOW
+        # Collect 1M steps takes hours
+```
+
+Isaac Gym approach:
+```python
+# 4096 environments in parallel on GPU
+obs, rewards = envs.step(actions)  # Single GPU call, 10-100x faster
+# Collect 1M steps in minutes
+```
+
+### Installation
+
+```bash
+# Download from NVIDIA (requires account)
+# https://developer.nvidia.com/isaac-gym
+
+# Extract
+tar -xf IsaacGym_Preview_4_Package.tar.gz
+cd isaacgym
+
+# Install
+pip install -e python
+```
+
+### Humanoid Walking Task
+
+Isaac Gym provides pre-built humanoid environment:
+
+```python
+from isaacgym import gymapi
+from isaacgym import gymutil
+from isaacgym.torch_utils import *
+import torch
+
+# Create gym instance
+gym = gymapi.acquire_gym()
+
+# Configure simulation
+sim_params = gymapi.SimParams()
+sim_params.dt = 1.0 / 60.0  # 60 Hz
+sim_params.substeps = 2
+sim_params.up_axis = gymapi.UP_AXIS_Z
+sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+
+# Physics engine
+sim_params.physx.solver_type = 1
+sim_params.physx.num_position_iterations = 4
+sim_params.physx.num_velocity_iterations = 1
+sim_params.physx.use_gpu = True
+
+# Create sim
+sim = gym.create_sim(0, 0, gymapi.SIM_PHYSX, sim_params)
+
+# Load humanoid asset
+asset_root = "../../assets"
+asset_file = "mjcf/nv_humanoid.xml"  # MuJoCo format
+asset_options = gymapi.AssetOptions()
+asset_options.angular_damping = 0.01
+humanoid_asset = gym.load_asset(sim, asset_root, asset_file, asset_options)
+
+# Create 4096 parallel environments
+num_envs = 4096
+envs_per_row = 64
+env_spacing = 1.5
+
+envs = []
+for i in range(num_envs):
+    env = gym.create_env(sim, gymapi.Vec3(-env_spacing, -env_spacing, 0),
+                         gymapi.Vec3(env_spacing, env_spacing, env_spacing), envs_per_row)
+
+    pose = gymapi.Transform()
+    pose.p = gymapi.Vec3(0, 0, 1.34)  # Start 1.34m above ground
+
+    actor = gym.create_actor(env, humanoid_asset, pose, "humanoid", i, 1)
+    envs.append(env)
+
+# Prepare simulation
+gym.prepare_sim(sim)
+```
+
+### State and Action Spaces
+
+**Observation Space** (state):
+```python
+# 108-dimensional state vector
+obs = torch.cat([
+    root_orientation,     # 4 (quaternion)
+    root_linear_vel,      # 3
+    root_angular_vel,     # 3
+    joint_positions,      # 21 joints
+    joint_velocities,     # 21
+    previous_actions,     # 21
+    target_velocity,      # 3
+], dim=-1)  # Total: 76 dimensions
+```
+
+**Action Space**:
+```python
+# 21-dimensional continuous action (joint PD targets)
+action = policy(obs)  # Range: [-1, 1]
+# Scale to joint limits
+joint_targets = action * joint_range + joint_offset
+```
+
+### Reward Function
+
+Design reward to encourage walking:
+
+```python
+def compute_reward(self):
+    # Forward velocity reward
+    target_vel = 1.0  # m/s
+    vel_reward = torch.exp(-2.0 * torch.abs(self.root_vel[:, 0] - target_vel))
+
+    # Upright reward (penalize falling)
+    up_reward = torch.square(self.root_rot[:, 2])  # z-component of up vector
+
+    # Energy penalty (encourage efficiency)
+    energy_penalty = -0.05 * torch.sum(torch.square(self.torques), dim=1)
+
+    # Survival bonus
+    alive_reward = 2.0
+
+    # Total reward
+    reward = vel_reward + 2.0 * up_reward + energy_penalty + alive_reward
+
+    # Reset if fallen
+    reset = self.root_pos[:, 2] < 0.5  # Torso below 50cm
+
+    return reward, reset
+```
+
+### Training Loop with PPO
+
+```python
+from rl_games.algos_torch import torch_ext
+from rl_games.common import vecenv
+from rl_games.torch_runner import Runner
+
+# Configure PPO
+config = {
+    'params': {
+        'algo': {
+            'name': 'a2c_continuous',  # PPO variant in rl_games
+        },
+        'model': {
+            'name': 'continuous_a2c_logstd',
+        },
+        'network': {
+            'name': 'actor_critic',
+            'separate': False,
+            'space': {
+                'continuous': {
+                    'mu_activation': 'None',
+                    'sigma_activation': 'None',
+                    'mu_init': {'name': 'default'},
+                    'sigma_init': {'name': 'const_initializer', 'val': 0},
+                    'fixed_sigma': True,
+                }
+            },
+            'mlp': {
+                'units': [512, 256, 128],
+                'activation': 'elu',
+                'd2rl': False,
+                'initializer': {'name': 'default'},
+                'regularizer': {'name': 'None'},
+            }
+        },
+        'config': {
+            'name': 'humanoid',
+            'env_name': 'rlgpu',
+            'multi_gpu': False,
+            'ppo': True,
+            'mixed_precision': True,
+            'normalize_input': True,
+            'normalize_value': True,
+            'reward_shaper': {'scale_value': 0.01},
+            'normalize_advantage': True,
+            'gamma': 0.99,
+            'tau': 0.95,
+            'learning_rate': 3e-4,
+            'lr_schedule': 'adaptive',
+            'kl_threshold': 0.008,
+            'score_to_win': 20000,
+            'max_epochs': 10000,
+            'save_best_after': 100,
+            'save_frequency': 100,
+            'grad_norm': 1.0,
+            'entropy_coef': 0.0,
+            'truncate_grads': True,
+            'e_clip': 0.2,
+            'horizon_length': 32,
+            'minibatch_size': 32768,
+            'mini_epochs': 5,
+            'critic_coef': 4,
+            'clip_value': True,
+            'seq_len': 4,
+            'bounds_loss_coef': 0.0001
+        }
+    }
+}
+
+# Run training
+runner = Runner()
+runner.load(config)
+runner.run({
+    'train': True,
+    'play': False,
+    'checkpoint': None,
+    'sigma': None
+})
+```
+
+### Training Results
+
+**Typical training progression**:
+
+| Iteration | Episodes | Reward | Time |
+|-----------|----------|--------|------|
+| 0 | 0 | -100 | 0 min |
+| 100 | 400K | 50 | 2 min |
+| 500 | 2M | 500 | 10 min |
+| 1000 | 4M | 2000 | 20 min |
+| **2000** | **8M** | **5000** | **40 min** |
+
+**Convergence**: Humanoid learns stable walking in ~40 minutes on RTX 3090.
+
+## Deploying Trained Policy
+
+### Export Policy
+
+```python
+# Save policy weights
+torch.save(policy.state_dict(), 'humanoid_policy.pth')
+
+# Or export to ONNX for TensorRT
+dummy_input = torch.randn(1, 76)  # Observation size
+torch.onnx.export(
+    policy,
+    dummy_input,
+    'humanoid_policy.onnx',
+    input_names=['observation'],
+    output_names=['action'],
+    dynamic_axes={'observation': {0: 'batch'}}
+)
+```
+
+### Run Policy on Real Robot
+
+```python
+import torch
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray
+
+class PolicyNode(Node):
+    def __init__(self):
+        super().__init__('policy_node')
+
+        # Load trained policy
+        self.policy = torch.load('humanoid_policy.pth')
+        self.policy.eval()
+
+        # ROS interfaces
+        self.joint_sub = self.create_subscription(
+            JointState, '/joint_states', self.joint_callback, 10
+        )
+        self.cmd_pub = self.create_publisher(
+            Float64MultiArray, '/joint_commands', 10
+        )
+
+        self.obs = torch.zeros(76)
+        self.timer = self.create_timer(0.02, self.control_loop)  # 50 Hz
+
+    def joint_callback(self, msg):
+        # Update observation with current joint states
+        self.obs[4:25] = torch.tensor(msg.position)
+        self.obs[25:46] = torch.tensor(msg.velocity)
+
+    def control_loop(self):
+        # Run policy inference
+        with torch.no_grad():
+            action = self.policy(self.obs.unsqueeze(0))[0]
+
+        # Publish joint commands
+        cmd = Float64MultiArray()
+        cmd.data = action.numpy().tolist()
+        self.cmd_pub.publish(cmd)
+```
+
+## Domain Randomization
+
+Improve sim-to-real transfer by varying simulation parameters:
+
+```python
+# Randomize during training
+def randomize_env(self):
+    # Randomize mass
+    self.robot_mass = np.random.uniform(50, 70)  # kg
+
+    # Randomize friction
+    self.ground_friction = np.random.uniform(0.5, 1.2)
+
+    # Randomize actuator strength
+    self.motor_strength = np.random.uniform(0.8, 1.2)
+
+    # Randomize action delay
+    self.action_delay = np.random.randint(0, 3)  # 0-3 timesteps
+
+    # Randomize observation noise
+    self.obs_noise = np.random.uniform(0, 0.05)
+
+    # Apply to simulation
+    gym.set_actor_root_state_tensor(...)
+```
+
+## Advanced RL Topics
+
+### Curriculum Learning
+
+Start easy, progressively harder:
+
+```python
+class CurriculumTrainer:
+    def __init__(self):
+        self.stage = 0
+        self.stages = [
+            {'target_vel': 0.5, 'terrain': 'flat'},
+            {'target_vel': 1.0, 'terrain': 'flat'},
+            {'target_vel': 1.0, 'terrain': 'stairs'},
+            {'target_vel': 1.5, 'terrain': 'rough'},
+        ]
+
+    def update_curriculum(self, success_rate):
+        if success_rate > 0.8 and self.stage < len(self.stages) - 1:
+            self.stage += 1
+            self.apply_stage(self.stages[self.stage])
+```
+
+### Asymmetric Actor-Critic
+
+**Privileged information** during training:
+
+```python
+# Actor (deployed): limited observations
+actor_obs = [joint_pos, joint_vel, orientation]  # 76 dims
+
+# Critic (training only): full state
+critic_obs = [
+    joint_pos, joint_vel, orientation,
+    ground_truth_friction,  # Not available on real robot
+    exact_contact_forces,   # Simulated only
+    future_trajectory       # Oracle information
+]  # 150+ dims
+
+# Critic uses extra info to guide learning
+# Actor never sees it, so policy is deployable
+```
+
+### Imitation Learning
+
+Bootstrap RL with human demonstrations:
+
+```python
+# Collect expert data
+expert_trajectories = load_mocap_data('walking.bvh')
+
+# Pre-train with behavioral cloning
+for obs, action in expert_trajectories:
+    loss = F.mse_loss(policy(obs), action)
+    loss.backward()
+    optimizer.step()
+
+# Fine-tune with RL
+# Policy starts near-optimal, converges faster
+```
+
+## Practical Tips
+
+### Hyperparameter Tuning
+
+**Most important hyperparameters**:
+1. **Learning rate**: 3e-4 (typical), decrease if unstable
+2. **Horizon length**: 16-64 timesteps
+3. **Mini-epochs**: 3-8 (PPO update iterations)
+4. **Discount γ**: 0.99-0.995 for long-horizon tasks
+5. **Advantage normalization**: Essential for stability
+
+### Debugging RL
+
+**Policy not learning?**
+- Check reward scale (should be ~1-1000 per episode)
+- Verify observation normalization
+- Ensure actions are in valid range
+- Visualize rollouts (watch simulation)
+
+**Policy learns but doesn't transfer?**
+- Increase domain randomization
+- Add observation noise
+- Reduce simulation fidelity (closer to real sensors)
+- Collect real-world data for fine-tuning
+
+## Summary
+
+Reinforcement learning enables:
+
+✅ **Learning complex behaviors** (walking, manipulation)
+✅ **No explicit programming** required
+✅ **Continuous improvement** from experience
+✅ **Isaac Gym training** in minutes
+✅ **Sim-to-real transfer** with domain randomization
+
+Next, integrate everything in a complete AI perception lab!
+
+## Next Steps
+
+Continue to [AI Perception Pipeline Lab](./ai-perception-pipeline-lab.mdx) for hands-on integration.
+
+---
+
+## References
+
+[^1]: Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
+
+[^2]: Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017). Proximal Policy Optimization Algorithms. *arXiv preprint arXiv:1707.06347*.
+
+[^3]: Makoviychuk, V., et al. (2021). Isaac Gym: High Performance GPU-Based Physics Simulation For Robot Learning. *arXiv preprint arXiv:2108.10470*.
+
+[^4]: Peng, X. B., et al. (2018). Sim-to-Real Transfer of Robotic Control with Dynamics Randomization. *IEEE International Conference on Robotics and Automation (ICRA)*, 3803-3810.

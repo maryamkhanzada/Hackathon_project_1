@@ -1,0 +1,328 @@
+# Capstone Project: Autonomous Humanoid Assistant
+
+Welcome to the **capstone project**—where you integrate everything learned across Modules 1-4 into a **fully autonomous humanoid system**. This project demonstrates your mastery of Physical AI, combining ROS 2, digital twins, NVIDIA Isaac, and vision-language-action models.
+
+## Project Overview
+
+### What You'll Build
+
+An **autonomous humanoid assistant** capable of:
+
+✅ **Voice-controlled navigation**: "Go to the kitchen and bring me a cup"
+✅ **Visual object recognition**: Identifies objects using Isaac ROS + CLIP
+✅ **Task planning with LLMs**: GPT-4 breaks down complex commands
+✅ **Autonomous manipulation**: Grasps and places objects
+✅ **Sim-to-real transfer**: Trained in Isaac Sim, deployable to real hardware
+
+### System Capabilities
+
+**Example Task Flow**:
+```
+User (voice): "Clean the table in the kitchen"
+           ↓
+    [Whisper transcribes command]
+           ↓
+    [GPT-4 generates plan]:
+      1. Navigate to kitchen
+      2. Detect objects on table
+      3. For each object: grasp → navigate to bin → place
+      4. Return to user and confirm
+           ↓
+    [Isaac ROS provides visual perception]
+           ↓
+    [Nav2 executes navigation]
+           ↓
+    [MoveIt2 executes manipulation]
+           ↓
+    [Task complete, TTS feedback: "Table is clean"]
+```
+
+## Architecture
+
+### High-Level System Diagram
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   User Interface Layer                     │
+│  - Voice commands (Whisper)                                │
+│  - Visual feedback (RViz, TTS)                             │
+└──────────────────────┬─────────────────────────────────────┘
+                       ↓
+┌────────────────────────────────────────────────────────────┐
+│                Cognitive Planning Layer                     │
+│  - Task decomposition (GPT-4)                              │
+│  - Multi-modal fusion (voice + vision + gesture)           │
+│  - Dialogue management                                     │
+└──────────────────────┬─────────────────────────────────────┘
+                       ↓
+┌────────────────────────────────────────────────────────────┐
+│                  Perception Layer                          │
+│  - Visual SLAM (Isaac ROS cuVSLAM)                         │
+│  - Object detection (YOLO + TensorRT)                      │
+│  - Visual grounding (CLIP)                                 │
+│  - Depth estimation (stereo)                               │
+└──────────────────────┬─────────────────────────────────────┘
+                       ↓
+┌────────────────────────────────────────────────────────────┐
+│                  Control Layer                             │
+│  - Navigation (Nav2)                                       │
+│  - Manipulation (MoveIt2)                                  │
+│  - Whole-body control (joint controllers)                  │
+└──────────────────────┬─────────────────────────────────────┘
+                       ↓
+┌────────────────────────────────────────────────────────────┐
+│               Simulation / Hardware Layer                   │
+│  - Isaac Sim (development/training)                        │
+│  - Gazebo (testing)                                        │
+│  - Real robot (deployment on Jetson Orin)                  │
+└────────────────────────────────────────────────────────────┘
+```
+
+## Learning Objectives
+
+By completing this capstone, you will:
+
+✅ **Integrate** ROS 2, Isaac Sim, Isaac ROS, and Nav2 into one system
+✅ **Implement** end-to-end autonomy from voice to action
+✅ **Deploy** trained models from simulation to real hardware
+✅ **Debug** complex multi-component robotic systems
+✅ **Evaluate** system performance with quantitative metrics
+✅ **Document** your implementation for reproducibility
+
+## Prerequisites
+
+### Knowledge Requirements
+
+- **Module 1**: ROS 2 fundamentals, URDF, rclpy
+- **Module 2**: Physics simulation, Gazebo/Unity
+- **Module 3**: Isaac Sim, Isaac ROS, Nav2, RL training
+- **Module 4**: Whisper, GPT-4, CLIP, multi-modal fusion
+
+### Hardware Requirements
+
+**Minimum (Simulation Only)**:
+- NVIDIA GPU: RTX 3060 or higher (8GB+ VRAM)
+- CPU: Intel i7 / AMD Ryzen 7
+- RAM: 16GB
+- Storage: 100GB SSD
+
+**Recommended (Sim + Real Robot)**:
+- Development PC: RTX 3080+ (10GB VRAM), 32GB RAM
+- Robot: Jetson AGX Orin (32GB)
+- Camera: Intel RealSense D435i or ZED 2
+- Microphone: USB microphone or webcam mic
+
+### Software Requirements
+
+- Ubuntu 22.04 LTS
+- ROS 2 Humble
+- Isaac Sim 2023.1.1+
+- Python 3.10+
+- OpenAI API key (for GPT-4 and Whisper API)
+- Docker (optional, for containerized deployment)
+
+## Project Modules
+
+### 1. [Implementation Guide](./implementation-guide.mdx)
+
+Step-by-step instructions to build the system from scratch:
+
+- Environment setup and dependencies
+- ROS 2 workspace configuration
+- Isaac Sim scene creation
+- Launch file organization
+- Testing individual components
+
+**Time estimate**: 4-6 hours (excluding training time)
+
+### 2. [Integration: ROS 2 + Isaac + VLA](./integration-ros2-isaac-vla.mdx)
+
+Deep dive into system integration:
+
+- ROS 2 node architecture and communication
+- Isaac ROS perception pipeline
+- VLA fusion node implementation
+- Action coordination and state management
+- Error handling and recovery
+
+**Key concepts**: Message passing, action servers, synchronization, data fusion
+
+### 3. [Testing & Troubleshooting](./testing-troubleshooting.mdx)
+
+Comprehensive testing and debugging:
+
+- Unit testing individual nodes
+- Integration testing workflows
+- Common failure modes and solutions
+- Performance profiling and optimization
+- ROS 2 debugging tools (rqt, Foxglove)
+
+**Tools**: pytest, ROS bags, RViz, Gazebo GUI, Isaac Sim logs
+
+### 4. [Optional Extensions](./optional-extensions.mdx)
+
+Advanced features for going beyond the baseline:
+
+- Edge AI deployment on Jetson Orin
+- Custom gesture recognition
+- Multi-robot coordination
+- Continuous learning from human feedback
+- Safety monitoring and constraints
+
+**For advanced students or thesis projects**
+
+## Success Criteria
+
+Your capstone project is successful if:
+
+**Functional Requirements**:
+- [ ] Robot responds to voice commands with under 5 second latency
+- [ ] Navigation success rate above 80% in cluttered environments
+- [ ] Object detection accuracy above 70% for known objects
+- [ ] Manipulation success rate above 60% for grasping tasks
+- [ ] System runs continuously for 10+ minutes without crashes
+
+**Integration Requirements**:
+- [ ] All ROS 2 nodes launch without errors
+- [ ] Isaac Sim scene loads and runs at above 10 FPS
+- [ ] Perception data flows correctly to planning nodes
+- [ ] Actions execute in logical sequence based on plan
+
+**Documentation Requirements**:
+- [ ] System architecture diagram included
+- [ ] Launch instructions documented
+- [ ] Failure modes identified and documented
+- [ ] Performance metrics measured and reported
+
+## Deliverables
+
+### 1. Source Code
+- Complete ROS 2 workspace with all packages
+- Launch files for full system
+- Configuration files (YAML, URDF, etc.)
+- README with setup instructions
+
+### 2. Demonstration Video
+- 2-3 minute video showing:
+  - Voice command input
+  - Task planning visualization
+  - Robot executing full workflow
+  - Narration explaining each step
+
+### 3. Technical Report
+- System architecture description
+- Implementation decisions and trade-offs
+- Performance evaluation results
+- Challenges encountered and solutions
+- Future improvements
+
+## Evaluation Rubric
+
+| Category | Weight | Criteria |
+|----------|--------|----------|
+| **Functionality** | 40% | System completes voice-controlled tasks autonomously |
+| **Integration** | 25% | All modules work together seamlessly |
+| **Code Quality** | 15% | Clean, documented, follows ROS 2 conventions |
+| **Innovation** | 10% | Optional extensions or creative solutions |
+| **Documentation** | 10% | Clear instructions, architecture diagrams, demo video |
+
+## Timeline
+
+**Phase 1: Setup (Week 1)**
+- Install all dependencies
+- Configure ROS 2 workspace
+- Create Isaac Sim scene
+- Test individual modules
+
+**Phase 2: Integration (Week 2)**
+- Connect perception and planning
+- Implement action coordination
+- Debug integration issues
+
+**Phase 3: Testing (Week 3)**
+- End-to-end testing
+- Performance evaluation
+- Bug fixes and optimization
+
+**Phase 4: Extensions & Documentation (Week 4)**
+- Optional advanced features
+- Create demonstration video
+- Write technical report
+
+**Total time**: 4 weeks (part-time) or 1-2 weeks (full-time)
+
+## Example Use Cases
+
+### Use Case 1: Kitchen Assistant
+**Command**: "Bring me a bottle of water from the kitchen"
+
+**Steps**:
+1. Navigate to kitchen
+2. Detect "bottle" using object detection
+3. Visual grounding: identify "water bottle" with CLIP
+4. Grasp bottle
+5. Navigate back to user
+6. Hand over bottle
+
+**Metrics**: Success rate, task completion time
+
+### Use Case 2: Table Cleaning
+**Command**: "Clear the table"
+
+**Steps**:
+1. Navigate to table
+2. Detect all objects on table
+3. For each object:
+   - Grasp object
+   - Navigate to bin
+   - Place object
+4. Return to user and report completion
+
+**Metrics**: Number of objects cleared, errors
+
+### Use Case 3: Guided Tour
+**Command**: "Show me around the house"
+
+**Steps**:
+1. Plan route through rooms
+2. Navigate to each room
+3. Announce room name (TTS)
+4. Point out notable objects
+5. Answer questions about environment
+
+**Metrics**: Coverage, spoken descriptions
+
+## Getting Started
+
+Ready to build your autonomous humanoid? Start with the [Implementation Guide](./implementation-guide.mdx) for step-by-step instructions!
+
+---
+
+## Frequently Asked Questions
+
+**Q: Do I need a real humanoid robot?**
+A: No. The entire project can be completed in Isaac Sim. Real hardware deployment is optional.
+
+**Q: Can I use a different LLM instead of GPT-4?**
+A: Yes. The code supports local LLMs (Llama 3.1, Mistral) via Ollama or HuggingFace.
+
+**Q: What if I don't have an NVIDIA GPU?**
+A: You can use Google Colab or cloud GPUs (AWS, Lambda Labs) for Isaac Sim.
+
+**Q: How long does training take?**
+A: RL training for locomotion: 10-30 minutes on RTX 3080. No training required if using pre-trained policies.
+
+**Q: Can I substitute Nav2 with a different planner?**
+A: Yes, but Nav2 is recommended for ROS 2 integration and community support.
+
+---
+
+## References
+
+[^1]: Ahn, M., et al. (2022). Do As I Can, Not As I Say: Grounding Language in Robotic Affordances. *CoRL 2022*.
+
+[^2]: Brohan, A., et al. (2023). RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control. *arXiv:2307.15818*.
+
+[^3]: NVIDIA Corporation. (2024). Isaac Platform for Robotics. *NVIDIA Developer Documentation*.
+
+[^4]: Macenski, S., et al. (2020). The Marathon 2: A Navigation System. *IEEE/RSJ IROS*, 2718-2725.

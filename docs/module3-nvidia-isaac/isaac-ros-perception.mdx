@@ -1,0 +1,530 @@
+# Isaac ROS for Perception
+
+Isaac ROS delivers GPU-accelerated perception for real-time robotics. This section covers installation, visual SLAM, stereo depth, and DNN-based object detection on both desktop and Jetson platforms.
+
+## Why GPU-Accelerated Perception?
+
+Traditional ROS packages run on CPU, limiting real-time performance:
+
+**CPU-Only Perception** (traditional):
+- Stereo depth: 1-5 FPS
+- Visual SLAM: 5-10 FPS
+- Object detection (YOLO): 2-10 FPS
+- **Total latency**: 200-500ms
+
+**GPU-Accelerated (Isaac ROS)**:
+- Stereo depth: 30-60 FPS
+- Visual SLAM: 30-60 FPS
+- Object detection: 30-120 FPS (TensorRT)
+- **Total latency**: 16-50ms
+
+**Result**: Real-time closed-loop control becomes possible.
+
+## Architecture
+
+Isaac ROS packages use **CUDA** and **TensorRT** for acceleration:
+
+```
+┌──────────────────────────────────────────┐
+│         ROS 2 Node (CPU thread)          │
+└────────────────┬─────────────────────────┘
+                 │
+                 ↓ (zero-copy)
+┌──────────────────────────────────────────┐
+│      GEM (GPU Engine Module - CUDA)      │
+│  ┌────────────┐  ┌──────────────────┐   │
+│  │ Algorithm  │  │  TensorRT Engine │   │
+│  │  Kernels   │  │   (optimized)    │   │
+│  └────────────┘  └──────────────────┘   │
+└────────────────┬─────────────────────────┘
+                 ↓
+┌──────────────────────────────────────────┐
+│            NVIDIA GPU                    │
+│   (CUDA cores + Tensor cores)            │
+└──────────────────────────────────────────┘
+```
+
+**Zero-copy pipeline**: Images stay on GPU from camera driver through processing to visualization.
+
+## Installation
+
+### Desktop (Ubuntu 22.04 + NVIDIA GPU)
+
+**Prerequisites**:
+```bash
+# NVIDIA Driver (525+)
+nvidia-smi  # Verify GPU detected
+
+# Docker with NVIDIA Container Toolkit
+sudo apt install docker.io
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+  sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt update && sudo apt install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+**Isaac ROS via Docker** (recommended):
+
+```bash
+# Clone Isaac ROS Common
+cd ~/workspaces
+git clone https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common.git
+
+# Build Isaac ROS Docker image
+cd isaac_ros_common
+./scripts/run_dev.sh
+
+# Inside container, workspace is at /workspaces/isaac_ros-dev
+```
+
+**Verify Installation**:
+
+```bash
+# Inside Docker container
+source /opt/ros/humble/setup.bash
+ros2 pkg list | grep isaac_ros
+```
+
+### Jetson (Orin, Xavier, Nano)
+
+**Flash JetPack 5.1.2+**:
+
+```bash
+# On host PC, use NVIDIA SDK Manager
+# https://developer.nvidia.com/sdk-manager
+```
+
+**Install Isaac ROS on Jetson**:
+
+```bash
+# On Jetson, install via apt (pre-built binaries)
+sudo apt update
+sudo apt install ros-humble-isaac-ros-visual-slam \
+                 ros-humble-isaac-ros-stereo-image-proc \
+                 ros-humble-isaac-ros-dnn-inference
+```
+
+## Visual SLAM (cuVSLAM)
+
+**cuVSLAM** provides real-time visual odometry and mapping.
+
+### Setup
+
+```bash
+# Install (if not already)
+sudo apt install ros-humble-isaac-ros-visual-slam
+
+# Download camera calibration
+# Assumes RealSense D435i or similar stereo camera
+```
+
+### Launch VSLAM
+
+```bash
+# Terminal 1: Camera driver
+ros2 launch realsense2_camera rs_launch.py \
+  enable_infra1:=true \
+  enable_infra2:=true \
+  enable_depth:=true
+
+# Terminal 2: Isaac VSLAM
+ros2 launch isaac_ros_visual_slam isaac_ros_visual_slam_realsense.launch.py
+```
+
+### Outputs
+
+**Topics published**:
+- `/visual_slam/tracking/odometry` (nav_msgs/Odometry): Pose estimate
+- `/visual_slam/tracking/vo_pose_covariance` (geometry_msgs/PoseWithCovarianceStamped)
+- `/visual_slam/vis/slam_odometry` (nav_msgs/Odometry): For RViz
+- `/visual_slam/vis/landmarks` (sensor_msgs/PointCloud2): Map points
+- `/visual_slam/vis/loop_closure_cloud` (sensor_msgs/PointCloud2)
+
+### Visualization
+
+```bash
+# RViz
+rviz2 -d $(ros2 pkg prefix isaac_ros_visual_slam)/share/isaac_ros_visual_slam/config/isaac_ros_visual_slam.rviz
+```
+
+### Python API
+
+```python
+import rclpy
+from rclpy.node import Node
+from nav_msgs.msg import Odometry
+
+class VSLAMListener(Node):
+    def __init__(self):
+        super().__init__('vslam_listener')
+        self.subscription = self.create_subscription(
+            Odometry,
+            '/visual_slam/tracking/odometry',
+            self.odom_callback,
+            10
+        )
+
+    def odom_callback(self, msg):
+        pos = msg.pose.pose.position
+        self.get_logger().info(f"Position: x={pos.x:.2f}, y={pos.y:.2f}, z={pos.z:.2f}")
+
+def main():
+    rclpy.init()
+    node = VSLAMListener()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+### Performance
+
+**Benchmark** (Jetson AGX Orin):
+- Input: 640x480 stereo @ 30 FPS
+- Latency: 20-30ms
+- CPU usage: ~15%
+- GPU usage: ~30%
+- Power: ~8W
+
+## Stereo Depth Estimation
+
+GPU-accelerated stereo matching for dense depth maps.
+
+### Setup
+
+```bash
+# Install
+sudo apt install ros-humble-isaac-ros-stereo-image-proc
+```
+
+### Launch Stereo Pipeline
+
+```bash
+# Launch file
+ros2 launch isaac_ros_stereo_image_proc isaac_ros_stereo_image_pipeline.launch.py \
+  left_image_topic:=/camera/infra1/image_rect_raw \
+  right_image_topic:=/camera/infra2/image_rect_raw \
+  left_camera_info_topic:=/camera/infra1/camera_info \
+  right_camera_info_topic:=/camera/infra2/camera_info
+```
+
+### Outputs
+
+- `/disparity` (stereo_msgs/DisparityImage): Disparity map
+- `/depth` (sensor_msgs/Image): Depth image (float32, meters)
+- `/points2` (sensor_msgs/PointCloud2): 3D point cloud
+
+### Tuning Parameters
+
+```python
+# In launch file or via rqt_reconfigure
+parameters={
+    'approximate_sync': True,
+    'queue_size': 10,
+    'correlation_window_size': 5,  # Larger = smoother, slower
+    'min_disparity': 0,
+    'max_disparity': 64,  # Adjust based on camera baseline
+    'uniqueness_ratio': 15.0,  # Filter ambiguous matches
+    'texture_threshold': 10,  # Minimum texture required
+}
+```
+
+### Performance Comparison
+
+| Implementation | Resolution | FPS | CPU % | GPU % |
+|----------------|------------|-----|-------|-------|
+| stereo_image_proc (CPU) | 640x480 | 3-5 | 90% | 0% |
+| **Isaac ROS (GPU)** | 640x480 | **30-60** | 10% | 25% |
+| **Isaac ROS (GPU)** | 1280x720 | **20-30** | 12% | 40% |
+
+**10-20x speedup** on GPU.
+
+## DNN-Based Object Detection
+
+TensorRT-optimized neural networks for real-time detection.
+
+### Supported Models
+
+**Pre-trained models available**:
+- **DetectNet**: Fast object detection (people, vehicles)
+- **DOPE**: 6-DoF pose estimation for known objects
+- **PeopleNet**: Pedestrian detection
+- **TrafficCamNet**: Traffic analysis
+- **Custom models**: Import ONNX models
+
+### Setup: DetectNet
+
+```bash
+# Install
+sudo apt install ros-humble-isaac-ros-detectnet
+
+# Download model
+mkdir -p ~/models
+cd ~/models
+wget https://api.ngc.nvidia.com/v2/models/nvidia/tao/detectnet_v2/versions/pruned_v1.0/files/resnet18_detector.etlt
+```
+
+### Launch Detection Pipeline
+
+```bash
+ros2 launch isaac_ros_detectnet isaac_ros_detectnet.launch.py \
+  model_file_path:=${HOME}/models/resnet18_detector.etlt \
+  engine_file_path:=${HOME}/models/resnet18_detector.plan \
+  input_binding_names:=['input_1'] \
+  output_binding_names:=['output_cov/Sigmoid','output_bbox/BiasAdd'] \
+  network_image_width:=960 \
+  network_image_height:=544
+```
+
+### Outputs
+
+- `/detections` (vision_msgs/Detection2DArray): Bounding boxes
+- `/detection_image` (sensor_msgs/Image): Annotated image
+
+### Detection Message Structure
+
+```python
+from vision_msgs.msg import Detection2DArray
+
+def detection_callback(msg):
+    for detection in msg.detections:
+        # Bounding box
+        bbox = detection.bbox
+        center_x = bbox.center.x
+        center_y = bbox.center.y
+        width = bbox.size_x
+        height = bbox.size_y
+
+        # Class and confidence
+        result = detection.results[0]
+        class_id = result.hypothesis.class_id
+        score = result.hypothesis.score
+
+        print(f"Detected class {class_id} at ({center_x}, {center_y}) "
+              f"with confidence {score:.2f}")
+```
+
+### Custom ONNX Models
+
+**Convert PyTorch/TensorFlow to ONNX**:
+
+```python
+import torch
+import torch.onnx
+
+# Example: YOLOv5 to ONNX
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+dummy_input = torch.randn(1, 3, 640, 640)
+
+torch.onnx.export(
+    model,
+    dummy_input,
+    "yolov5s.onnx",
+    opset_version=11,
+    input_names=['images'],
+    output_names=['output']
+)
+```
+
+**Deploy with Isaac ROS**:
+
+```bash
+ros2 launch isaac_ros_dnn_inference onnx_inference.launch.py \
+  model_file_path:=yolov5s.onnx \
+  engine_file_path:=yolov5s.plan
+```
+
+TensorRT will compile ONNX to optimized `.plan` file on first run (takes 2-5 minutes).
+
+### TensorRT Optimization
+
+**Precision modes**:
+- **FP32**: Full precision (baseline)
+- **FP16**: Half precision (2x faster, under 1% accuracy loss)
+- **INT8**: 8-bit integer (4x faster, 1-3% accuracy loss, requires calibration)
+
+```bash
+# Enable FP16
+trtexec --onnx=model.onnx --saveEngine=model_fp16.plan --fp16
+
+# Enable INT8 (requires calibration data)
+trtexec --onnx=model.onnx --saveEngine=model_int8.plan --int8 --calib=calibration.cache
+```
+
+## Image Segmentation
+
+Semantic segmentation with U-Net.
+
+### Setup
+
+```bash
+sudo apt install ros-humble-isaac-ros-unet
+```
+
+### Launch Segmentation
+
+```bash
+ros2 launch isaac_ros_unet isaac_ros_unet.launch.py \
+  model_name:=unet_industrial_segmentation \
+  engine_file_path:=unet_industrial.plan
+```
+
+### Outputs
+
+- `/unet/colored_segmentation_mask` (sensor_msgs/Image): Color-coded segmentation
+- `/unet/raw_segmentation_mask` (sensor_msgs/Image): Class IDs per pixel
+
+## Putting It All Together: Multi-Sensor Pipeline
+
+Combine VSLAM, depth, and detection:
+
+```bash
+# Launch all nodes
+ros2 launch my_robot_perception multi_sensor_perception.launch.py
+```
+
+```python
+# multi_sensor_perception.launch.py
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    return LaunchDescription([
+        # Camera driver
+        Node(
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            parameters=[{
+                'enable_infra1': True,
+                'enable_infra2': True,
+                'enable_color': True,
+                'enable_depth': True,
+            }]
+        ),
+
+        # Visual SLAM
+        Node(
+            package='isaac_ros_visual_slam',
+            executable='visual_slam_node',
+            parameters=[{
+                'denoise_input_images': True,
+                'rectified_images': True,
+            }],
+            remappings=[
+                ('/stereo_camera/left/image', '/camera/infra1/image_rect_raw'),
+                ('/stereo_camera/right/image', '/camera/infra2/image_rect_raw'),
+            ]
+        ),
+
+        # Stereo depth
+        Node(
+            package='isaac_ros_stereo_image_proc',
+            executable='disparity_node',
+            parameters=[{
+                'approximate_sync': True,
+                'max_disparity': 64,
+            }],
+            remappings=[
+                ('/left/image_rect', '/camera/infra1/image_rect_raw'),
+                ('/right/image_rect', '/camera/infra2/image_rect_raw'),
+            ]
+        ),
+
+        # Object detection
+        Node(
+            package='isaac_ros_detectnet',
+            executable='isaac_ros_detectnet',
+            parameters=[{
+                'model_file_path': '/models/detectnet.etlt',
+                'engine_file_path': '/models/detectnet.plan',
+            }],
+            remappings=[
+                ('/image', '/camera/color/image_raw'),
+            ]
+        ),
+    ])
+```
+
+## Benchmarks: Jetson AGX Orin
+
+**Power Budget**: 15W total
+
+| Pipeline | FPS | CPU | GPU | RAM | Latency |
+|----------|-----|-----|-----|-----|---------|
+| VSLAM alone | 30 | 15% | 30% | 2GB | 25ms |
+| Stereo depth alone | 30 | 10% | 25% | 1.5GB | 20ms |
+| Detection alone | 30 | 12% | 40% | 2.5GB | 30ms |
+| **All three combined** | **30** | **35%** | **70%** | **4.5GB** | **50ms** |
+
+**Conclusion**: Real-time multi-sensor perception achievable on edge device.
+
+## Troubleshooting
+
+### GPU Not Utilized
+
+**Check**:
+```bash
+# Verify CUDA available
+nvidia-smi
+
+# Check ROS node is using GPU
+nvidia-smi dmon -s u
+# Should show GPU utilization when node running
+```
+
+**Fix**:
+```bash
+# Ensure running inside Docker with GPU access
+docker run --gpus all ...
+
+# Or on Jetson, verify VPI enabled
+dpkg -l | grep vpi
+```
+
+### Low FPS
+
+**Tuning**:
+1. Reduce input resolution (640x480 instead of 1920x1080)
+2. Lower max_disparity for stereo (32 instead of 128)
+3. Use FP16/INT8 models for detection
+4. Disable unnecessary visualizations
+
+### High Latency
+
+**Profile pipeline**:
+```bash
+ros2 topic hz /camera/image_raw
+ros2 topic hz /detections
+
+# Check delay between input and output
+ros2 topic delay /camera/image_raw /detections
+```
+
+## Summary
+
+Isaac ROS provides:
+
+✅ **GPU acceleration** for 10-100x speedup
+✅ **Visual SLAM** for real-time localization
+✅ **Stereo depth** at 30+ FPS
+✅ **TensorRT detection** for custom DNNs
+✅ **Zero-copy** pipelines for minimal latency
+✅ **Jetson deployment** for edge AI
+
+Next, integrate perception with navigation using Nav2!
+
+## Next Steps
+
+Continue to [Navigation & Path Planning with Nav2](./nav2-path-planning.mdx) to enable autonomous movement.
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). Isaac ROS Documentation. *NVIDIA Isaac*. https://nvidia-isaac-ros.github.io/
+
+[^2]: Macenski, S., et al. (2023). Evaluating Isaac ROS Visual SLAM on Real-World Datasets. *IEEE Robotics and Automation Letters*, 8(10), 6574-6581.
+
+[^3]: Wu, C. (2013). Towards Linear-Time Incremental Structure from Motion. *3DV 2013*.
+
+[^4]: Hirschmuller, H. (2007). Stereo Processing by Semiglobal Matching and Mutual Information. *IEEE TPAMI*, 30(2), 328-341.

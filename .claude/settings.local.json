@@ -3,7 +3,12 @@
     "allow": [
       "Bash(.specify/scripts/bash/create-phr.sh:*)",
       "Bash(.specify/scripts/powershell/setup-plan.ps1:*)",
-      "Bash(mcp task create:*)"
+      "Bash(mcp task create:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File .specify/scripts/powershell/check-prerequisites.ps1 -Json)",
+      "Bash(ls:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

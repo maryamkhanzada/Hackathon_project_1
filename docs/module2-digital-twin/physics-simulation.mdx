@@ -1,0 +1,540 @@
+# Physics Simulation Fundamentals
+
+Realistic robot simulation requires accurate physics modeling. This section covers the mathematical and computational foundations that enable digital twins to behave like their physical counterparts.
+
+## Why Physics Simulation Matters
+
+Physics simulation is the **bridge between virtual models and real-world behavior**. Without accurate physics:
+
+- Robots that walk perfectly in simulation fall immediately in reality
+- Collision-free paths in simulation crash into obstacles
+- Sensor readings don't match real-world characteristics
+- Control algorithms trained in simulation fail catastrophically
+
+For humanoid robots, physics accuracy is especially critical because:
+- **Bipedal locomotion** is inherently unstable (requires precise balance)
+- **Contact dynamics** with the ground determine walking success
+- **Joint torques** must respect actuator limits
+- **Sensor fusion** depends on realistic noise models
+
+## Rigid Body Dynamics
+
+### Newton-Euler Equations
+
+Every object in a physics simulation obeys **Newton's laws of motion**[^1]:
+
+**Translational Motion**:
+```
+F = ma
+```
+Where:
+- **F**: Net force (N)
+- **m**: Mass (kg)
+- **a**: Linear acceleration (m/s²)
+
+**Rotational Motion**:
+```
+τ = Iα
+```
+Where:
+- **τ** (tau): Net torque (N⋅m)
+- **I**: Moment of inertia tensor (kg⋅m²)
+- **α** (alpha): Angular acceleration (rad/s²)
+
+### State Representation
+
+Each rigid body in simulation tracks:
+
+```python
+class RigidBody:
+    # Position and orientation
+    position: Vector3       # [x, y, z] in meters
+    orientation: Quaternion # [w, x, y, z] rotation
+
+    # Linear motion
+    linear_velocity: Vector3      # m/s
+    linear_acceleration: Vector3  # m/s²
+
+    # Angular motion
+    angular_velocity: Vector3      # rad/s (axis-angle)
+    angular_acceleration: Vector3  # rad/s²
+
+    # Physical properties
+    mass: float                    # kg
+    inertia_tensor: Matrix3x3      # kg⋅m²
+    center_of_mass: Vector3        # meters (local frame)
+```
+
+### Integration Methods
+
+Physics engines **integrate** these equations over time steps (typically 1-10 ms):
+
+**Explicit Euler** (simplest, least accurate):
+```python
+def euler_step(body, dt):
+    # Update velocity
+    body.velocity += body.acceleration * dt
+    # Update position
+    body.position += body.velocity * dt
+```
+
+**Semi-Implicit Euler** (better energy conservation):
+```python
+def semi_implicit_euler(body, dt):
+    # Update velocity first
+    body.velocity += body.acceleration * dt
+    # Then update position with new velocity
+    body.position += body.velocity * dt
+```
+
+**Runge-Kutta 4th Order** (RK4, most accurate but slower):
+```python
+def rk4_step(body, dt):
+    k1 = compute_derivative(body, 0)
+    k2 = compute_derivative(body, dt/2, k1)
+    k3 = compute_derivative(body, dt/2, k2)
+    k4 = compute_derivative(body, dt, k3)
+
+    body.state += (k1 + 2*k2 + 2*k3 + k4) * dt / 6
+```
+
+**Trade-offs**:
+- **Euler**: Fast but unstable, energy drift
+- **Semi-Implicit Euler**: Good balance for real-time (used by most game engines)
+- **RK4**: Very accurate but 4x computational cost
+
+Most robotics simulators use **semi-implicit Euler** or **Verlet integration** for real-time performance with acceptable accuracy.
+
+## Collision Detection
+
+Collision detection has two phases:
+
+### 1. Broad Phase: Spatial Partitioning
+
+Quickly eliminate pairs of objects that **cannot** collide:
+
+**Bounding Volume Hierarchies (BVH)**:
+```
+Robot (AABB: covers entire robot)
+├─ Torso (AABB)
+├─ Left Arm (AABB)
+│  ├─ Upper Arm (AABB)
+│  └─ Forearm (AABB)
+└─ Right Leg (AABB)
+   ├─ Thigh (AABB)
+   └─ Shin (AABB)
+```
+
+**Axis-Aligned Bounding Boxes (AABB)** test:
+```python
+def aabb_intersect(box1, box2):
+    return (box1.min.x <= box2.max.x and box1.max.x >= box2.min.x and
+            box1.min.y <= box2.max.y and box1.max.y >= box2.min.y and
+            box1.min.z <= box2.max.z and box1.max.z >= box2.min.z)
+```
+
+Other broad-phase methods:
+- **Sweep and Prune**: Sort objects along axes
+- **Spatial Hashing**: Grid-based bucketing
+- **Octrees**: Recursive 3D space subdivision
+
+### 2. Narrow Phase: Exact Collision
+
+For pairs that pass broad phase, compute **exact contact points**:
+
+**Sphere-Sphere** (simplest):
+```python
+def sphere_sphere_collision(s1, s2):
+    distance = (s1.center - s2.center).length()
+    if distance < (s1.radius + s2.radius):
+        # Collision detected
+        penetration_depth = (s1.radius + s2.radius) - distance
+        contact_normal = (s2.center - s1.center).normalized()
+        contact_point = s1.center + contact_normal * s1.radius
+        return Contact(contact_point, contact_normal, penetration_depth)
+```
+
+**Mesh-Mesh** (most complex):
+- **GJK Algorithm** (Gilbert-Johnson-Keerthi): Fast convex hull collision
+- **EPA** (Expanding Polytope Algorithm): Contact point refinement
+- **Triangle-triangle tests**: For non-convex meshes
+
+### Collision Geometries
+
+For performance, robots use **simplified collision shapes**:
+
+| Geometry | Use Case | Performance | Accuracy |
+|----------|----------|-------------|----------|
+| **Box** | Torso, rectangular links | Very Fast | Low |
+| **Sphere** | Joints, rounded parts | Very Fast | Medium |
+| **Cylinder** | Arms, legs, wheels | Fast | Medium |
+| **Capsule** | Limbs (rounded cylinder) | Fast | High |
+| **Convex Hull** | Complex parts | Medium | High |
+| **Triangle Mesh** | Terrain, environment | Slow | Very High |
+
+**Best Practice**: Use capsules for limbs, boxes for torso, spheres for end-effectors. Reserve meshes for static environment only.
+
+## Contact Dynamics and Constraints
+
+When objects collide, the physics engine must **resolve contacts** to prevent interpenetration.
+
+### Contact Forces
+
+**Normal Force** (prevents sinking):
+```
+F_normal = k * penetration_depth + b * relative_velocity
+```
+Where:
+- **k**: Contact stiffness (spring constant)
+- **b**: Contact damping (prevents bouncing)
+
+**Friction Force** (resists sliding):
+
+**Coulomb Friction Model**[^2]:
+```
+F_friction <= μ * F_normal
+```
+Where:
+- **μ** (mu): Coefficient of friction (0.0 = ice, 1.0+ = rubber)
+
+Types:
+- **Static friction** (μ_s): Resists initial motion (typically higher)
+- **Kinetic friction** (μ_k): Resists ongoing motion
+
+### Constraint Solvers
+
+Physics engines use **constraint solvers** to maintain joint limits and contacts:
+
+**1. Penalty Method** (spring-damper):
+- Fast but can be unstable
+- Used for soft contacts
+
+**2. Projected Gauss-Seidel (PGS)**:
+- Iteratively solves constraints
+- Good balance of speed/accuracy
+- Used in ODE, Bullet
+
+**3. Sequential Impulse** (SI):
+- Applies impulses to satisfy constraints
+- Fast convergence
+- Used in Box2D, PhysX
+
+**4. Linear Complementarity Problem (LCP)**:
+- Globally optimal solution
+- Slower but very accurate
+- Used in DART, MuJoCo
+
+Example constraint for a **revolute joint** (hinge):
+```python
+# Joint must maintain fixed position between two bodies
+position_constraint = body1.local_to_world(anchor1) - body2.local_to_world(anchor2)
+
+# Joint allows rotation around one axis only
+rotation_constraint = project_to_axis(body1.rotation - body2.rotation, joint_axis)
+
+# Solver iteratively adjusts body velocities to minimize constraint violations
+```
+
+## Physics Engines for Robotics
+
+### Open Dynamics Engine (ODE)
+
+**Strengths**:
+- Mature and stable (20+ years)
+- Excellent contact handling
+- Good documentation
+
+**Weaknesses**:
+- Slower than modern engines
+- Less accurate for stiff systems
+
+**Use Cases**: Gazebo Classic default, educational robotics
+
+### Bullet Physics
+
+**Strengths**:
+- Very fast (used in games)
+- Good collision detection
+- GPU acceleration available
+
+**Weaknesses**:
+- Less accurate contact solver
+- Can have jitter with complex contacts
+
+**Use Cases**: PyBullet, high-speed simulation, reinforcement learning
+
+### DART (Dynamic Animation and Robotics Toolkit)
+
+**Strengths**:
+- Highly accurate (LCP solver)
+- Analytical gradients for optimization
+- Stable for articulated bodies
+
+**Weaknesses**:
+- Slower than Bullet
+- Steeper learning curve
+
+**Use Cases**: Motion planning, optimal control, research
+
+### Simbody
+
+**Strengths**:
+- Biomechanics focus
+- Excellent for musculoskeletal models
+- High accuracy
+
+**Weaknesses**:
+- Complex API
+- Not optimized for real-time
+
+**Use Cases**: Human motion analysis, medical simulation
+
+### MuJoCo (Multi-Joint dynamics with Contact)
+
+**Strengths**:
+- Extremely fast and accurate
+- Designed specifically for robotics and RL
+- Excellent contact handling
+- Now open-source (2021)
+
+**Weaknesses**:
+- Commercial license required for some use cases
+- Smaller community than others
+
+**Use Cases**: DeepMind research, locomotion RL, manipulation
+
+### Engine Comparison
+
+| Engine | Speed | Accuracy | Contact Quality | RL/Optimization | License |
+|--------|-------|----------|-----------------|-----------------|---------|
+| **ODE** | Medium | Medium | Excellent | Limited | BSD/LGPL |
+| **Bullet** | Very Fast | Medium | Good | Good | Zlib |
+| **DART** | Medium | Very High | Excellent | Excellent | BSD |
+| **Simbody** | Slow | Very High | Excellent | Good | Apache 2.0 |
+| **MuJoCo** | Very Fast | Very High | Excellent | Excellent | Apache 2.0 |
+
+**Recommendation for Humanoid Robots**:
+- **Learning locomotion**: MuJoCo or Bullet (speed critical)
+- **Motion planning**: DART (gradients useful)
+- **General development**: ODE with Gazebo (ecosystem)
+- **Real-time interaction**: Bullet (low latency)
+
+## Simulation Stability and Timesteps
+
+### The Timestep Dilemma
+
+Physics simulation accuracy depends on **timestep size**:
+
+**Too Large** (dt = 0.1s):
+- Fast simulation
+- Objects pass through each other (tunneling)
+- Unstable contacts (jitter)
+- Energy growth (explosions)
+
+**Too Small** (dt = 0.0001s):
+- Very accurate
+- Prohibitively slow
+- Numerical precision issues
+
+**Typical Values**:
+- **Games**: 16.67ms (60 Hz)
+- **Gazebo**: 1ms (1000 Hz) default
+- **MuJoCo**: 2ms (500 Hz) default
+- **Bullet**: 10ms (100 Hz) with sub-stepping
+
+### Sub-Stepping
+
+Run physics **faster than rendering**:
+
+```python
+# Render at 30 Hz (33.33ms)
+render_dt = 1.0 / 30.0
+
+# Simulate at 1000 Hz (1ms)
+physics_dt = 0.001
+substeps = int(render_dt / physics_dt)  # 33 substeps
+
+for frame in simulation:
+    for _ in range(substeps):
+        physics_engine.step(physics_dt)  # Internal physics
+
+    render_frame()  # Visual update
+    ros_publish()   # ROS communication
+```
+
+This ensures **physics stability** without slowing down visualization.
+
+### Continuous Collision Detection (CCD)
+
+For fast-moving objects, use **CCD** to prevent tunneling:
+
+```python
+# Without CCD: bullet passes through wall
+# dt = 0.01s, bullet velocity = 1000 m/s
+# Bullet moves 10m in one timestep - might skip thin wall
+
+# With CCD: sweep collision geometry along motion path
+swept_volume = extrude(bullet_shape, start_pos, end_pos)
+if swept_volume.intersects(wall):
+    time_of_impact = binary_search_impact_time()
+    bullet.position = start_pos + velocity * time_of_impact
+    apply_collision_response()
+```
+
+Enable CCD for:
+- Small fast objects (projectiles)
+- Thin collision geometries (walls, floors)
+- Robot hands grasping small objects
+
+## Practical Simulation Tips
+
+### 1. Mass and Inertia
+
+**Always set realistic values**:
+
+```xml
+<inertial>
+  <mass value="5.0"/>  <!-- kg -->
+  <inertia ixx="0.0347" ixy="0.0" ixz="0.0"
+           iyy="0.0458" iyz="0.0"
+           izz="0.0347"/>
+</inertial>
+```
+
+**Common Mistakes**:
+- ❌ Mass = 0 (static objects should use fixed constraints)
+- ❌ Inertia = 0 (causes division by zero)
+- ❌ Unrealistic mass ratios (1000:1 creates stiff systems)
+
+**Inertia Estimation** for simple shapes:
+
+**Box** (width w, height h, depth d):
+```
+I_xx = (1/12) * m * (h² + d²)
+I_yy = (1/12) * m * (w² + d²)
+I_zz = (1/12) * m * (w² + h²)
+```
+
+**Cylinder** (radius r, height h):
+```
+I_xx = I_yy = (1/12) * m * (3r² + h²)
+I_zz = (1/2) * m * r²
+```
+
+Use CAD software or MeshLab to compute inertia for complex shapes.
+
+### 2. Contact Parameters
+
+**Tuning friction**:
+```xml
+<surface>
+  <friction>
+    <ode>
+      <mu>0.8</mu>   <!-- Rubber on concrete -->
+      <mu2>0.8</mu2> <!-- Secondary direction -->
+    </ode>
+  </friction>
+  <contact>
+    <ode>
+      <kp>1000000</kp>  <!-- Stiffness (N/m) -->
+      <kd>100</kd>      <!-- Damping (N⋅s/m) -->
+    </ode>
+  </contact>
+</surface>
+```
+
+**Material Reference**:
+- **Ice on ice**: μ = 0.02
+- **Wood on wood**: μ = 0.4
+- **Rubber on concrete**: μ = 0.8
+- **Rubber on rubber**: μ = 1.15
+
+### 3. Solver Parameters
+
+**In Gazebo SDF**:
+```xml
+<physics type="ode">
+  <max_step_size>0.001</max_step_size>  <!-- 1ms timestep -->
+  <real_time_factor>1.0</real_time_factor>
+  <max_contacts>20</max_contacts>
+
+  <ode>
+    <solver>
+      <type>quick</type>  <!-- or 'world' for more accuracy -->
+      <iters>50</iters>   <!-- Solver iterations -->
+      <sor>1.3</sor>      <!-- Successive over-relaxation -->
+    </solver>
+  </ode>
+</physics>
+```
+
+**Tuning Guide**:
+- **Unstable contacts**: Increase `iters` (50 → 100)
+- **Slow simulation**: Decrease `max_step_size` (0.001 → 0.002)
+- **Jittery robot**: Increase joint damping, decrease contact stiffness
+
+## Validation Against Real Hardware
+
+Physics simulation is only useful if it **matches reality**. Validation process:
+
+### 1. System Identification
+
+Measure real robot parameters:
+- **Masses**: Weigh each link with scale
+- **Inertias**: Pendulum swing tests or CAD
+- **Friction**: Measure joint backdrivability torques
+- **Contact**: Drop tests for stiffness/damping
+
+### 2. Benchmark Tests
+
+**Free Fall Test**:
+```python
+# Simulation: Drop object from 1m height
+# Real: Drop same object with high-speed camera
+# Compare: Impact time, bounce height, settling time
+```
+
+**Joint Friction Test**:
+```python
+# Simulation: Apply constant torque, measure velocity
+# Real: Same torque command, measure encoder velocity
+# Compare: Velocity profiles should match within 10%
+```
+
+### 3. Iterative Refinement
+
+Adjust simulation parameters until behaviors match:
+1. Start with CAD/manufacturer values
+2. Run benchmark tests in sim and real
+3. Identify largest discrepancies
+4. Tune 1-2 parameters at a time
+5. Repeat until error acceptable (typically under 15%)
+
+## Summary
+
+You've learned the physics foundations that power realistic robot simulation:
+
+✅ **Rigid body dynamics**: Newton-Euler equations and integration methods
+✅ **Collision detection**: Broad phase (BVH) and narrow phase (GJK)
+✅ **Contact dynamics**: Friction models and constraint solvers
+✅ **Physics engines**: ODE, Bullet, DART, MuJoCo comparison
+✅ **Simulation stability**: Timesteps, sub-stepping, and CCD
+✅ **Practical tuning**: Mass, inertia, contact parameters, validation
+
+These concepts apply to **all** robot simulators (Gazebo, Unity, Isaac Sim, PyBullet). Next, we'll set up Gazebo and Unity to put this knowledge into practice!
+
+## Next Steps
+
+Continue to [Gazebo & Unity Setup](./gazebo-unity-setup.mdx) to install and configure both simulators.
+
+---
+
+## References
+
+[^1]: Featherstone, R. (2014). *Rigid Body Dynamics Algorithms*. Springer. ISBN: 978-1-4899-7560-7.
+
+[^2]: Coulomb, C. A. (1785). *Théorie des machines simples* (Theory of Simple Machines). Mémoire de Mathématique et de Physique.
+
+[^3]: Erez, T., Tassa, Y., & Todorov, E. (2015). Simulation tools for model-based robotics: Comparison of Bullet, Havok, MuJoCo, ODE and PhysX. *IEEE International Conference on Robotics and Automation (ICRA)*, 4397-4404.
+
+[^4]: Coumans, E., & Bai, Y. (2016). PyBullet, a Python module for physics simulation for games, robotics and machine learning. http://pybullet.org

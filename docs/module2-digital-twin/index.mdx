@@ -1,0 +1,205 @@
+# Module 2: The Digital Twin (Gazebo & Unity)
+
+Welcome to Module 2! Here you'll learn to create **digital twins** of humanoid robots—virtual replicas that mirror physical robots in realistic simulated environments. This enables safe development, testing, and training before deploying to real hardware.
+
+## What is a Digital Twin?
+
+A **digital twin** is a virtual representation of a physical system that:
+- Replicates the robot's kinematics and dynamics
+- Simulates sensors with realistic noise and characteristics
+- Models physics (gravity, collisions, friction, contact forces)
+- Enables testing in diverse environments without hardware risk[^1]
+
+For humanoid robotics, digital twins are essential because:
+- Physical robots are expensive ($50K-$1M+)
+- Real-world testing is risky (falls can damage hardware)
+- Iteration cycles are slow (assembly, calibration, testing)
+- Virtual environments enable rapid prototyping and ML training
+
+## Why Two Simulators? Gazebo vs Unity
+
+### Gazebo: Physics-Accurate Robotics Simulation
+
+**Gazebo** is the industry standard for robotics simulation[^2]:
+
+**Strengths**:
+- ✅ Native ROS 2 integration
+- ✅ Accurate physics engines (ODE, Bullet, DART, Simbody)
+- ✅ Extensive sensor plugins (LiDAR, cameras, IMUs, force/torque)
+- ✅ Large community and package ecosystem
+- ✅ Headless operation for server farms
+
+**Use Cases**:
+- Navigation and path planning
+- Sensor fusion algorithms
+- Control system development
+- Multi-robot coordination
+
+### Unity: High-Fidelity Visualization
+
+**Unity** provides photorealistic rendering and VR/AR capabilities:
+
+**Strengths**:
+- ✅ Beautiful graphics for demonstrations and VR
+- ✅ Game engine performance optimization
+- ✅ Asset store with pre-built environments
+- ✅ Cross-platform (Windows, Mac, Linux, mobile)
+- ✅ Unity ML-Agents for reinforcement learning
+
+**Use Cases**:
+- Human-robot interaction (HRI) research
+- Virtual reality teleoperation
+- Marketing demonstrations
+- Reinforcement learning with visual observations
+
+### Complementary Approach
+
+This module teaches **both** simulators:
+- **Gazebo** for technical development and testing
+- **Unity** for visualization and advanced scenarios
+- Integration strategies for using both together
+
+## Module Overview
+
+### 1. [Physics Simulation Fundamentals](./physics-simulation.mdx)
+Understanding the physics that power realistic simulations:
+- Rigid body dynamics and kinematics
+- Collision detection and response
+- Gravity, friction, and contact forces
+- Physics engines and their trade-offs
+
+### 2. [Gazebo & Unity Setup](./gazebo-unity-setup.mdx)
+Getting both simulators running:
+- Installing Gazebo Garden/Harmonic
+- Setting up Unity with Robotics Hub
+- Configuring ROS 2 integration for both
+- Performance optimization
+
+### 3. [Simulating Sensors](./simulating-sensors.mdx)
+Realistic sensor models for perception:
+- LiDAR (2D and 3D laser scanners)
+- Depth cameras (RGB-D, stereo)
+- IMUs (gyroscopes, accelerometers)
+- Cameras (monocular, fisheye, panoramic)
+- Force/torque sensors
+
+### 4. [Collisions & Dynamics](./collisions-dynamics.mdx)
+Physics properties that affect robot behavior:
+- Collision geometries and optimization
+- Mass, inertia, center of gravity
+- Joint dynamics (friction, damping, limits)
+- Contact modeling and stability
+
+### 5. [Simulated Humanoid Lab](./simulated-humanoid-lab.mdx)
+Hands-on: Building and testing a humanoid in Gazebo:
+- Importing URDF models
+- Configuring sensors and controllers
+- Creating simulation worlds
+- Running locomotion tests
+
+## Learning Outcomes
+
+By the end of this module, you will be able to:
+
+✅ **Explain** the role and benefits of digital twins in robotics
+✅ **Install and configure** Gazebo Garden and Unity Robotics Hub
+✅ **Create** realistic simulation environments with physics
+✅ **Simulate** sensors (LiDAR, cameras, IMUs) with appropriate noise models
+✅ **Configure** collision properties and joint dynamics
+✅ **Launch** a simulated humanoid robot in Gazebo
+✅ **Integrate** simulation with ROS 2 for control and perception
+✅ **Debug** simulation issues and optimize performance
+
+## Prerequisites
+
+Before starting this module:
+
+- **Module 1 Complete**: Understanding of ROS 2, URDF, and nodes
+- **3D Graphics Knowledge**: Basic familiarity with 3D coordinate systems helpful
+- **Hardware**: GPU recommended (integrated graphics acceptable for basic Gazebo)
+- **Software**: Ubuntu 22.04 LTS, ROS 2 Humble installed
+
+:::tip GPU Recommendations
+
+- **Gazebo**: Runs on integrated graphics, GPU helps with complex scenes
+- **Unity**: Dedicated GPU strongly recommended for smooth performance
+- **Cloud Alternative**: AWS with GPU instances or NVIDIA Omniverse Cloud
+
+:::
+
+## Simulation vs Reality Gap
+
+The **sim-to-real gap** is the difference between simulated and real-world performance[^3]:
+
+**Common Gaps**:
+- Simplified friction models (simulation more ideal)
+- Sensor noise characteristics (simulation often cleaner)
+- Actuator dynamics (real motors have delays, dead zones)
+- Unexpected environmental factors (lighting, temperature, vibrations)
+
+**Mitigation Strategies**:
+- **Domain randomization**: Vary simulation parameters during training
+- **Realistic noise models**: Add sensor noise matching real hardware
+- **System identification**: Measure real robot parameters
+- **Iterative refinement**: Test in sim, deploy to real, update sim model
+
+This module emphasizes realistic simulation practices to minimize the sim-to-real gap.
+
+## Industry Use Cases
+
+Leading robotics companies rely on simulation:
+
+- **Boston Dynamics**: Atlas trained extensively in simulation before physical testing
+- **Tesla**: Optimus humanoid developed in NVIDIA Isaac Sim
+- **Agility Robotics**: Digit uses Gazebo for gait development
+- **NASA**: VIPER lunar rover tested in high-fidelity Gazebo environments
+- **Waymo**: Self-driving cars log billions of simulated miles
+
+Simulation accelerates development by 10-100x compared to hardware-only approaches[^4].
+
+## Module Structure
+
+This module follows a progressive path:
+
+1. **Conceptual Foundation** → Understand physics simulation principles
+2. **Tool Setup** → Install and configure Gazebo and Unity
+3. **Sensor Modeling** → Create realistic sensor simulations
+4. **Physics Tuning** → Configure dynamics for stable simulation
+5. **Integration Lab** → Build complete simulated humanoid system
+
+Each section includes:
+- 📖 **Theory**: Core concepts with diagrams
+- 🛠️ **Setup Guides**: Step-by-step installation
+- 💻 **Configuration Examples**: Copy-paste ready code
+- 🔬 **Lab Exercises**: Hands-on simulated experiments
+
+## Getting Help
+
+Resources for this module:
+
+- **Gazebo Documentation**: [https://gazebosim.org/docs](https://gazebosim.org/docs)
+- **Unity Robotics Hub**: [https://github.com/Unity-Technologies/Unity-Robotics-Hub](https://github.com/Unity-Technologies/Unity-Robotics-Hub)
+- **[Glossary](/docs/appendices/glossary)**: Simulation terminology
+- **[Lab Setup Tips](/docs/appendices/lab-setup-tips)**: Troubleshooting guidance
+
+:::info Gazebo Versions
+
+This module uses **Gazebo Garden** (recommended) with notes for Gazebo Classic 11. Gazebo Harmonic (latest) is also compatible with minor configuration changes.
+
+:::
+
+## Ready to Start?
+
+Let's begin with [Physics Simulation Fundamentals](./physics-simulation.mdx) to understand the mathematical foundations that power realistic simulations!
+
+---
+
+## References
+
+[^1]: Grieves, M., & Vickers, J. (2017). Digital Twin: Mitigating Unpredictable, Undesirable Emergent Behavior in Complex Systems. In *Transdisciplinary Perspectives on Complex Systems* (pp. 85-113). Springer.
+
+[^2]: Koenig, N., & Howard, A. (2004). Design and use paradigms for Gazebo, an open-source multi-robot simulator. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, 2149-2154.
+
+[^3]: Zhao, W., Queralta, J. P., & Westerlund, T. (2020). Sim-to-Real Transfer in Deep Reinforcement Learning for Robotics: a Survey. *IEEE Symposium Series on Computational Intelligence (SSCI)*, 737-744.
+
+[^4]: OpenAI. (2019). Solving Rubik's Cube with a Robot Hand. *OpenAI Blog*. https://openai.com/blog/solving-rubiks-cube/

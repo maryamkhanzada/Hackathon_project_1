@@ -1,0 +1,613 @@
+# Optional Extensions
+
+Advanced features to extend your autonomous humanoid beyond the baseline capstone. These extensions are suitable for thesis projects, research, or production deployments.
+
+## Extension 1: Edge AI Deployment on Jetson Orin
+
+Deploy the full VLA system on NVIDIA Jetson AGX Orin for real-time edge inference.
+
+### Hardware Requirements
+
+- **NVIDIA Jetson AGX Orin** (32GB or 64GB)
+- **RealSense D435i** or ZED 2 camera
+- **USB microphone** or webcam with mic
+- **Power supply**: 65W USB-C PD
+
+### Software Stack on Jetson
+
+```bash
+# Install JetPack 5.1.2 (includes CUDA, cuDNN, TensorRT)
+sudo apt update
+sudo apt install nvidia-jetpack
+
+# Install ROS 2 Humble
+sudo apt install ros-humble-desktop
+
+# Install Isaac ROS (optimized for Jetson)
+sudo apt install ros-humble-isaac-ros-visual-slam \
+                 ros-humble-isaac-ros-dnn-inference
+```
+
+### Model Optimization for Edge
+
+**1. Quantize YOLO for TensorRT**:
+
+```python
+from ultralytics import YOLO
+
+# Load model
+model = YOLO('yolov8n.pt')
+
+# Export to TensorRT (INT8 quantization)
+model.export(format='engine', int8=True, data='coco128.yaml')
+
+# Load optimized model
+model_trt = YOLO('yolov8n.engine')
+
+# Inference (10x faster on Jetson)
+results = model_trt(image)
+```
+
+**2. Optimize Whisper for Edge**:
+
+Use **WhisperX** with CTranslate2:
+
+```bash
+pip install whisperx faster-whisper
+
+# Convert model
+ct2-transformers-converter --model openai/whisper-small \
+  --output_dir whisper_small_ct2 \
+  --quantization int8
+```
+
+```python
+from faster_whisper import WhisperModel
+
+# Load quantized model (3x faster, 4x smaller)
+model = WhisperModel("whisper_small_ct2", device="cuda", compute_type="int8")
+
+# Transcribe
+segments, info = model.transcribe("audio.wav")
+for segment in segments:
+    print(segment.text)
+```
+
+**3. Local LLM Inference**:
+
+Use **Llama 3.1 8B** with quantization:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull quantized model (Q4_K_M: 4.9GB)
+ollama pull llama3.1:8b-q4_K_M
+
+# Serve
+ollama serve
+```
+
+```python
+import requests
+
+def query_local_llm(prompt):
+    response = requests.post(
+        'http://localhost:11434/api/generate',
+        json={'model': 'llama3.1:8b-q4_K_M', 'prompt': prompt}
+    )
+    return response.json()['response']
+```
+
+### Performance Benchmarks (Jetson AGX Orin)
+
+| Component | Latency | FPS | Power |
+|-----------|---------|-----|-------|
+| YOLO (TensorRT INT8) | 12ms | 83 | 15W |
+| Whisper (FP16) | 450ms (3s audio) | - | 18W |
+| Llama 3.1 8B (Q4) | 1.2s (plan generation) | - | 25W |
+| Isaac ROS VSLAM | 8ms | 125 | 12W |
+| **Total System** | ~2s end-to-end | - | **35W** |
+
+## Extension 2: Custom Gesture Recognition
+
+Add hand gesture control for deictic references and commands.
+
+### MediaPipe Hand Tracking
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import PointStamped
+from cv_bridge import CvBridge
+import mediapipe as mp
+import cv2
+
+class GestureRecognitionNode(Node):
+    def __init__(self):
+        super().__init__('gesture_recognition')
+
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.7
+        )
+
+        self.bridge = CvBridge()
+
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10
+        )
+
+        self.pointing_pub = self.create_publisher(
+            PointStamped, '/pointing_target', 10
+        )
+
+        self.get_logger().info('Gesture Recognition Node ready')
+
+    def image_callback(self, msg):
+        cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+        # Convert to RGB
+        image_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+
+        # Process
+        results = self.hands.process(image_rgb)
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Detect pointing gesture
+                if self.is_pointing(hand_landmarks):
+                    target = self.get_pointing_target(hand_landmarks, cv_image.shape)
+
+                    # Publish pointing target
+                    point_msg = PointStamped()
+                    point_msg.header = msg.header
+                    point_msg.point.x = target[0]
+                    point_msg.point.y = target[1]
+                    point_msg.point.z = 0.0
+
+                    self.pointing_pub.publish(point_msg)
+
+    def is_pointing(self, landmarks):
+        """Check if hand pose is pointing gesture"""
+        # Index finger extended
+        index_tip = landmarks.landmark[8]
+        index_mcp = landmarks.landmark[5]
+        index_extended = index_tip.y < index_mcp.y
+
+        # Middle finger curled
+        middle_tip = landmarks.landmark[12]
+        middle_mcp = landmarks.landmark[9]
+        middle_curled = middle_tip.y > middle_mcp.y
+
+        return index_extended and middle_curled
+
+    def get_pointing_target(self, landmarks, image_shape):
+        """Compute pointing direction in image coordinates"""
+        h, w = image_shape[:2]
+
+        index_tip = landmarks.landmark[8]
+        wrist = landmarks.landmark[0]
+
+        # Extrapolate pointing direction
+        dx = index_tip.x - wrist.x
+        dy = index_tip.y - wrist.y
+
+        # Project forward
+        target_x = int((index_tip.x + dx * 2) * w)
+        target_y = int((index_tip.y + dy * 2) * h)
+
+        return (target_x, target_y)
+
+def main():
+    rclpy.init()
+    node = GestureRecognitionNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+### Gesture Commands
+
+Define gesture vocabulary:
+
+| Gesture | Meaning | Use Case |
+|---------|---------|----------|
+| **Point** | Deictic reference | "Pick up that object" + point |
+| **Open palm** | Stop | Emergency stop command |
+| **Thumbs up** | Confirm | Approve action |
+| **Thumbs down** | Reject | Cancel action |
+| **Wave** | Attention | Get robot's attention |
+
+## Extension 3: Multi-Robot Coordination
+
+Coordinate multiple humanoid robots for collaborative tasks.
+
+### Fleet Management Architecture
+
+```
+┌────────────────────────────────────────┐
+│        Fleet Manager Node              │
+│  - Task allocation                     │
+│  - Collision avoidance                 │
+│  - Resource management                 │
+└───────────┬────────────────────────────┘
+            │
+    ┌───────┼───────┬────────┐
+    ↓       ↓       ↓        ↓
+ [Robot1] [Robot2] [Robot3] [Robot4]
+```
+
+### Task Allocation
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import json
+
+class FleetManagerNode(Node):
+    def __init__(self):
+        super().__init__('fleet_manager')
+
+        # Track robot states
+        self.robots = {
+            'robot1': {'status': 'idle', 'location': (0, 0)},
+            'robot2': {'status': 'idle', 'location': (2, 0)},
+            'robot3': {'status': 'idle', 'location': (0, 2)},
+        }
+
+        # Subscribe to task requests
+        self.task_sub = self.create_subscription(
+            String, '/fleet/task_request', self.task_callback, 10
+        )
+
+        # Publishers for individual robots
+        self.robot_pubs = {}
+        for robot_id in self.robots.keys():
+            self.robot_pubs[robot_id] = self.create_publisher(
+                String, f'/{robot_id}/task', 10
+            )
+
+        self.get_logger().info('Fleet Manager ready')
+
+    def task_callback(self, msg):
+        task = json.loads(msg.data)
+        self.get_logger().info(f'Received task: {task}')
+
+        # Allocate task to best robot
+        assigned_robot = self.allocate_task(task)
+
+        if assigned_robot:
+            # Send task to robot
+            task_msg = String()
+            task_msg.data = json.dumps(task)
+            self.robot_pubs[assigned_robot].publish(task_msg)
+
+            self.robots[assigned_robot]['status'] = 'busy'
+            self.get_logger().info(f'Assigned task to {assigned_robot}')
+        else:
+            self.get_logger().warn('No available robot for task')
+
+    def allocate_task(self, task):
+        """Allocate task to closest idle robot"""
+
+        task_location = task.get('location', (0, 0))
+
+        best_robot = None
+        min_distance = float('inf')
+
+        for robot_id, state in self.robots.items():
+            if state['status'] == 'idle':
+                # Compute distance
+                dist = self.distance(state['location'], task_location)
+
+                if dist < min_distance:
+                    min_distance = dist
+                    best_robot = robot_id
+
+        return best_robot
+
+    def distance(self, pos1, pos2):
+        import math
+        return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
+def main():
+    rclpy.init()
+    node = FleetManagerNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Extension 4: Continuous Learning from Human Feedback
+
+Implement **RLHF** (Reinforcement Learning from Human Feedback) to improve robot behavior.
+
+### Feedback Collection
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String, Int8
+import json
+import sqlite3
+
+class FeedbackCollectorNode(Node):
+    def __init__(self):
+        super().__init__('feedback_collector')
+
+        # Database for storing feedback
+        self.db = sqlite3.connect('robot_feedback.db')
+        self.init_database()
+
+        # Subscribe to task completions
+        self.task_sub = self.create_subscription(
+            String, '/task_completed', self.task_callback, 10
+        )
+
+        # Subscribe to user feedback
+        self.feedback_sub = self.create_subscription(
+            Int8, '/user_feedback', self.feedback_callback, 10
+        )
+
+        self.current_task = None
+
+        self.get_logger().info('Feedback Collector ready')
+
+    def init_database(self):
+        cursor = self.db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                task_description TEXT,
+                plan TEXT,
+                execution_time REAL,
+                user_rating INTEGER,
+                comments TEXT
+            )
+        ''')
+        self.db.commit()
+
+    def task_callback(self, msg):
+        """Store completed task, awaiting feedback"""
+        self.current_task = json.loads(msg.data)
+        self.get_logger().info('Task completed. Awaiting user feedback (1-5)...')
+
+    def feedback_callback(self, msg):
+        """Store user feedback for current task"""
+        if self.current_task:
+            rating = msg.data
+
+            cursor = self.db.cursor()
+            cursor.execute('''
+                INSERT INTO feedback (timestamp, task_description, plan, user_rating)
+                VALUES (datetime('now'), ?, ?, ?)
+            ''', (
+                self.current_task['description'],
+                json.dumps(self.current_task['plan']),
+                rating
+            ))
+            self.db.commit()
+
+            self.get_logger().info(f'Feedback recorded: {rating}/5')
+            self.current_task = None
+
+def main():
+    rclpy.init()
+    node = FeedbackCollectorNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+### Feedback-Based Policy Refinement
+
+Use collected feedback to fine-tune LLM planner:
+
+```python
+# Fine-tune GPT-3.5 on high-rated task examples
+import openai
+
+# Retrieve high-rated examples from database
+cursor = db.cursor()
+cursor.execute('SELECT task_description, plan FROM feedback WHERE user_rating >= 4')
+training_data = cursor.fetchall()
+
+# Format for fine-tuning
+training_examples = []
+for task, plan in training_data:
+    training_examples.append({
+        "messages": [
+            {"role": "user", "content": f"Generate plan for: {task}"},
+            {"role": "assistant", "content": plan}
+        ]
+    })
+
+# Upload training data
+# See: https://platform.openai.com/docs/guides/fine-tuning
+```
+
+## Extension 5: Safety Monitoring and Constraints
+
+Add runtime safety checks for collision avoidance and constraint satisfaction.
+
+### Safety Monitor Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool
+
+class SafetyMonitorNode(Node):
+    def __init__(self):
+        super().__init__('safety_monitor')
+
+        # Safety parameters
+        self.min_obstacle_distance = 0.5  # meters
+        self.max_velocity = 0.5  # m/s
+
+        # Subscribe to velocity commands
+        self.cmd_sub = self.create_subscription(
+            Twist, '/cmd_vel_unsafe', self.cmd_callback, 10
+        )
+
+        # Subscribe to laser scan
+        self.scan_sub = self.create_subscription(
+            LaserScan, '/scan', self.scan_callback, 10
+        )
+
+        # Publish safe velocity commands
+        self.safe_cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        # Publish emergency stop signal
+        self.estop_pub = self.create_publisher(Bool, '/emergency_stop', 10)
+
+        self.obstacle_detected = False
+
+        self.get_logger().info('Safety Monitor active')
+
+    def scan_callback(self, msg):
+        """Check for obstacles in laser scan"""
+        min_range = min(msg.ranges)
+
+        if min_range < self.min_obstacle_distance:
+            self.obstacle_detected = True
+            self.get_logger().warn(f'Obstacle detected at {min_range:.2f}m!')
+        else:
+            self.obstacle_detected = False
+
+    def cmd_callback(self, msg):
+        """Validate and limit velocity commands"""
+
+        if self.obstacle_detected:
+            # STOP
+            safe_cmd = Twist()  # Zero velocity
+            self.safe_cmd_pub.publish(safe_cmd)
+
+            # Trigger emergency stop
+            estop_msg = Bool()
+            estop_msg.data = True
+            self.estop_pub.publish(estop_msg)
+
+            self.get_logger().error('EMERGENCY STOP: Obstacle too close')
+            return
+
+        # Limit velocity
+        safe_cmd = Twist()
+        safe_cmd.linear.x = max(-self.max_velocity, min(self.max_velocity, msg.linear.x))
+        safe_cmd.angular.z = max(-1.0, min(1.0, msg.angular.z))
+
+        self.safe_cmd_pub.publish(safe_cmd)
+
+def main():
+    rclpy.init()
+    node = SafetyMonitorNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Extension 6: Web Dashboard
+
+Create a web-based control and monitoring dashboard.
+
+### Foxglove Studio
+
+Use **Foxglove Studio** for real-time visualization:
+
+```bash
+# Install Foxglove bridge
+sudo apt install ros-humble-foxglove-bridge
+
+# Launch bridge
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+```
+
+Access at: `http://localhost:8765`
+
+### Custom React Dashboard
+
+```javascript
+// dashboard.jsx
+import React, { useEffect, useState } from 'react';
+import ROSLIB from 'roslib';
+
+function RobotDashboard() {
+  const [ros, setRos] = useState(null);
+  const [status, setStatus] = useState('Disconnected');
+  const [lastCommand, setLastCommand] = useState('');
+
+  useEffect(() => {
+    const rosInstance = new ROSLIB.Ros({
+      url: 'ws://localhost:9090'
+    });
+
+    rosInstance.on('connection', () => {
+      setStatus('Connected');
+    });
+
+    setRos(rosInstance);
+  }, []);
+
+  const sendCommand = (command) => {
+    const topic = new ROSLIB.Topic({
+      ros: ros,
+      name: '/voice_command',
+      messageType: 'std_msgs/String'
+    });
+
+    const message = new ROSLIB.Message({ data: command });
+    topic.publish(message);
+
+    setLastCommand(command);
+  };
+
+  return (
+    <div>
+      <h1>Humanoid Robot Control</h1>
+      <p>Status: {status}</p>
+      <button onClick={() => sendCommand('Go to kitchen')}>
+        Go to Kitchen
+      </button>
+      <button onClick={() => sendCommand('Bring me a cup')}>
+        Bring Cup
+      </button>
+      <p>Last Command: {lastCommand}</p>
+    </div>
+  );
+}
+
+export default RobotDashboard;
+```
+
+## Summary
+
+Optional extensions covered:
+
+✅ **Edge AI deployment** on Jetson Orin with model optimization
+✅ **Gesture recognition** for natural interaction
+✅ **Multi-robot coordination** for fleet management
+✅ **Continuous learning** from human feedback
+✅ **Safety monitoring** with real-time constraints
+✅ **Web dashboard** for remote control
+
+These extensions transform your capstone into a production-ready or research-grade system!
+
+---
+
+## References
+
+[^1]: NVIDIA. (2024). *Jetson AGX Orin Developer Kit User Guide*. https://developer.nvidia.com/jetson-agx-orin-developer-kit
+
+[^2]: Google. (2024). *MediaPipe Hands Solution*. https://developers.google.com/mediapipe/solutions/vision/hand_landmarker
+
+[^3]: OpenAI. (2023). *Fine-tuning Guide*. https://platform.openai.com/docs/guides/fine-tuning
+
+[^4]: Foxglove. (2024). *Foxglove Studio Documentation*. https://docs.foxglove.dev/

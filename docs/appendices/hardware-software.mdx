@@ -1,0 +1,211 @@
+# Appendix A: Hardware and Software Requirements
+
+Complete hardware and software specifications for building and deploying autonomous humanoid systems covered in this book.
+
+## Software Requirements
+
+### Operating System
+
+**Required**: Ubuntu 22.04 LTS (Jammy Jellyfish)
+
+```bash
+# Check version
+lsb_release -a
+# Should show: Ubuntu 22.04.x LTS
+```
+
+**Why Ubuntu 22.04?**
+- Native support for ROS 2 Humble (LTS)
+- Long-term support until 2027
+- Best compatibility with NVIDIA Isaac Sim and Isaac ROS
+
+### ROS 2 Distribution
+
+**Required**: ROS 2 Humble Hawksbill (LTS)
+
+```bash
+# Install
+sudo apt install ros-humble-desktop-full
+
+# Verify
+ros2 --version
+```
+
+**Package dependencies**:
+```bash
+# Navigation
+sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup
+
+# Manipulation
+sudo apt install ros-humble-moveit
+
+# Isaac ROS
+sudo apt install ros-humble-isaac-ros-visual-slam \
+                 ros-humble-isaac-ros-dnn-inference
+```
+
+### NVIDIA Isaac Sim
+
+**Version**: 2023.1.1 or later
+**Installation**: Via NVIDIA Omniverse Launcher
+**Size**: ~50GB
+**Requirements**: NVIDIA RTX GPU, 32GB RAM, 100GB storage
+
+### Python Environment
+
+**Version**: Python 3.10+
+
+**Core packages**:
+```bash
+pip install openai==1.3.0 openai-whisper torch torchvision \
+            transformers clip-anytorch ultralytics \
+            opencv-python pyaudio gtts mediapipe
+```
+
+## Hardware Requirements
+
+### Development Workstation
+
+#### Minimum (Simulation Only)
+
+| Component | Specification | Cost |
+|-----------|---------------|------|
+| **CPU** | Intel i5-10400 / AMD Ryzen 5 5600X | - |
+| **GPU** | NVIDIA RTX 3060 (8GB VRAM) | - |
+| **RAM** | 16GB DDR4 | - |
+| **Storage** | 256GB SSD | - |
+| **Total** | - | $800-1,200 |
+
+#### Recommended
+
+| Component | Specification | Cost |
+|-----------|---------------|------|
+| **CPU** | Intel i7-12700K / AMD Ryzen 7 5800X3D | - |
+| **GPU** | NVIDIA RTX 3080 (12GB VRAM) | - |
+| **RAM** | 32GB DDR4/DDR5 | - |
+| **Storage** | 512GB NVMe SSD | - |
+| **Total** | - | $1,500-2,500 |
+
+### Edge AI Device
+
+#### NVIDIA Jetson AGX Orin
+
+| Specification | Value |
+|---------------|-------|
+| **GPU** | 2048-core Ampere, 64 Tensor Cores |
+| **CPU** | 12-core Arm Cortex-A78AE |
+| **RAM** | 32GB / 64GB |
+| **Performance** | 275 TOPS (INT8) |
+| **Power** | 15-60W |
+| **Price** | $1,999 / $2,499 |
+
+### Sensors
+
+#### Camera: Intel RealSense D435i
+
+| Specification | Value |
+|---------------|-------|
+| **RGB** | 1920x1080 @ 30 FPS |
+| **Depth** | 1280x720 @ 30 FPS |
+| **Range** | 0.3m - 10m |
+| **IMU** | Built-in BMI055 |
+| **Price** | $329 |
+
+**Alternative**: ZED 2 ($449), Logitech C920 ($70)
+
+#### Microphone
+
+- USB: Blue Yeti ($129)
+- Webcam: Built into C920 ($70)
+- Budget: Lavalier mic ($79)
+
+#### LiDAR (Optional)
+
+| Model | Range | Price |
+|-------|-------|-------|
+| RPLidar A1 | 12m, 360° | $99 |
+| RPLidar A2 | 12m, 4000Hz | $319 |
+| SICK TiM561 | 10m, 270° | $1,495 |
+
+## Cloud Computing Options
+
+### Google Colab
+
+- **Free**: Tesla T4 GPU (16GB)
+- **Pro** ($9.99/month): A100 GPU (40GB)
+- **Limitation**: 12-hour sessions
+
+### AWS EC2
+
+**Instance**: g4dn.xlarge
+- GPU: NVIDIA T4 (16GB)
+- vCPU: 4
+- RAM: 16GB
+- **Price**: $0.526/hour (~$380/month)
+
+### Lambda Labs
+
+| Instance | GPU | Price/hour |
+|----------|-----|------------|
+| 1x RTX 3080 | 10GB | $0.50 |
+| 1x A100 | 40GB | $1.10 |
+
+## Storage Requirements
+
+| Component | Size |
+|-----------|------|
+| Ubuntu 22.04 | 10GB |
+| ROS 2 Humble | 5GB |
+| Isaac Sim | 50GB |
+| Python packages | 10GB |
+| Datasets | 20GB |
+| **Total** | **95-200GB** |
+
+**Recommendation**: 512GB SSD minimum, 1TB preferred
+
+## API Keys Required
+
+1. **OpenAI** (GPT-4, Whisper): https://platform.openai.com/
+   - Cost: ~$10-30/month for development
+
+2. **NVIDIA Developer** (Isaac Sim): https://developer.nvidia.com/
+   - Free
+
+## Cost Summary
+
+### Minimum Budget (Simulation Only)
+
+| Item | Cost |
+|------|------|
+| Workstation | $800 |
+| OpenAI API (3 months) | $90 |
+| **Total** | **$890** |
+
+### Recommended Budget
+
+| Item | Cost |
+|------|------|
+| Workstation | $2,000 |
+| OpenAI API (1 year) | $360 |
+| RealSense camera | $329 |
+| Microphone | $79 |
+| **Total** | **$2,768** |
+
+### Full System (with Real Robot)
+
+| Item | Cost |
+|------|------|
+| Workstation | $2,000 |
+| Jetson AGX Orin | $2,000 |
+| Sensors | $500 |
+| Custom humanoid | $5,000 |
+| OpenAI API | $360 |
+| **Total** | **$9,860** |
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). *Isaac Sim System Requirements*. https://docs.omniverse.nvidia.com/isaacsim/latest/installation/requirements.html
+
+[^2]: ROS 2 Documentation. (2024). *ROS 2 Humble Installation*. https://docs.ros.org/en/humble/Installation.html

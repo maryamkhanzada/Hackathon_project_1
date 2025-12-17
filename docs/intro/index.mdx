@@ -1,0 +1,238 @@
+# Introduction to Physical AI & Humanoid Robotics
+
+Welcome to an exciting journey into the world of **Physical AI** and **Humanoid Robotics**! This book will guide you through the cutting-edge intersection of artificial intelligence, robotics, and embodied intelligence, equipping you with the knowledge and practical skills to build autonomous humanoid systems.
+
+## Overview of Physical AI & Embodied Intelligence
+
+### What is Physical AI?
+
+**Physical AI** represents a paradigm shift in artificial intelligence—moving beyond purely digital systems to AI that interacts with and learns from the physical world through robotic embodiment. Unlike traditional AI systems that exist solely in software, Physical AI systems have bodies, sensors, and actuators that allow them to perceive, reason about, and manipulate their environment.
+
+Physical AI combines several key disciplines:
+
+- **Perception**: Using sensors (cameras, LiDAR, IMUs) to understand the environment
+- **Cognition**: Processing sensory information to make intelligent decisions
+- **Action**: Executing physical movements through actuators and motors
+- **Learning**: Improving performance through experience in the real world
+
+This integration creates AI systems that can navigate unpredictable environments, manipulate objects, and interact naturally with humans in shared spaces[^1].
+
+### Embodied Intelligence: Beyond Digital Thinking
+
+**Embodied intelligence** is the concept that intelligence emerges not just from computation, but from the interaction between an agent's body, brain, and environment[^2]. This idea challenges the traditional view of intelligence as purely abstract reasoning.
+
+Key principles of embodied intelligence include:
+
+1. **Morphological Computation**: The body's physical structure contributes to solving problems. For example, a humanoid's bipedal structure naturally balances through passive dynamics.
+
+2. **Sensorimotor Coupling**: Intelligence emerges from the tight coupling between sensing and action. A robot learns by doing, not just thinking.
+
+3. **Environmental Scaffolding**: The environment provides structure that simplifies cognitive tasks. Objects afford certain actions based on their physical properties.
+
+4. **Developmental Learning**: Like human children, robots develop skills progressively through physical interaction with the world.
+
+Embodied intelligence explains why humanoid robots must be trained in physical simulations and real-world environments—their intelligence is inseparable from their physical form and experiences[^3].
+
+## Why Humanoid Robots Matter in the Real World
+
+### The Humanoid Advantage
+
+Humanoid robots—robots with human-like body structures—offer unique advantages for operating in human-designed environments:
+
+**1. Environmental Compatibility**
+
+Our world is built for human bodies: stairs, doorways, chairs, tools, and vehicles are all designed for bipedal creatures with two arms and hands. Humanoid robots can navigate and interact with these spaces without requiring environmental modifications[^4].
+
+**2. Natural Human-Robot Interaction**
+
+Humans intuitively understand humanoid movements and intentions. A humanoid robot reaching for an object communicates its goal clearly, enabling safer and more predictable collaboration in shared workspaces[^5].
+
+**3. Tool and Interface Utilization**
+
+Humanoids can use existing human tools, equipment, and interfaces without specialized adaptation. From operating machinery to using touchscreens, humanoid morphology provides versatility across tasks.
+
+**4. Social and Care Applications**
+
+In healthcare, eldercare, and service industries, humanoid form factors enable more natural, less intimidating interactions. Patients and clients respond more positively to humanoid assistants than to industrial robot arms or wheeled platforms[^6].
+
+### Real-World Applications
+
+Humanoid robots are already making impacts across multiple sectors:
+
+- **Manufacturing & Logistics**: Boston Dynamics' Atlas and Tesla's Optimus navigate warehouses, manipulate objects, and work alongside human workers.
+
+- **Healthcare**: Humanoid assistants help with patient mobility, medication delivery, and companionship for elderly populations.
+
+- **Disaster Response**: Humanoid robots can traverse rubble, climb stairs, and operate human tools in search-and-rescue operations where traditional robots fail.
+
+- **Space Exploration**: NASA's Valkyrie and Robonaut are designed to work in human-rated spacecraft and perform extravehicular activities.
+
+- **Service Industry**: Hotels, airports, and retail environments deploy humanoid robots for customer service, wayfinding, and information provision.
+
+The global humanoid robotics market is projected to reach $17.3 billion by 2027, driven by advances in AI, computing power, and mechanical engineering[^7].
+
+## Course Goals: Bridging Digital AI to Physical Robotics
+
+This book aims to bridge the gap between digital AI technologies and physical robotic systems. By the end of this course, you will be able to:
+
+### Core Competencies
+
+**1. Master the Robotic Nervous System (ROS 2)**
+- Understand ROS 2 architecture and communication patterns (nodes, topics, services, actions)
+- Integrate Python with ROS 2 using rclpy for rapid development
+- Model humanoid robots using URDF (Unified Robot Description Format)
+- Develop and deploy ROS 2 packages for robotic applications
+
+**2. Create Digital Twins**
+- Build physics-accurate simulations in Gazebo and Unity
+- Simulate realistic sensors (LiDAR, depth cameras, IMUs)
+- Understand collision dynamics, gravity, and joint mechanics
+- Leverage simulation for safe development before physical deployment
+
+**3. Implement AI-Driven Perception and Navigation**
+- Deploy NVIDIA Isaac Sim for photorealistic simulation
+- Utilize Isaac ROS for hardware-accelerated perception (VSLAM, object detection)
+- Implement autonomous navigation using Nav2
+- Apply reinforcement learning fundamentals for robot control
+
+**4. Integrate Vision-Language-Action (VLA) Systems**
+- Connect Large Language Models (LLMs) to robotic planning
+- Implement voice-to-action interfaces with OpenAI Whisper
+- Enable multi-modal interaction combining speech, vision, and gesture
+- Build cognitive planning systems that understand natural language commands
+
+**5. Engineer Complete Autonomous Systems**
+- Integrate all modules (ROS 2, simulation, Isaac, VLA) into cohesive systems
+- Debug and troubleshoot complex robotic applications
+- Apply best practices for testing, deployment, and maintenance
+- Design for sim-to-real transfer considerations
+
+### Learning Philosophy
+
+This course emphasizes **hands-on, project-based learning**:
+
+- **Learning by Building**: Every module includes practical labs and exercises
+- **Simulation First**: Develop and test safely in simulation before hardware
+- **Incremental Complexity**: Progress from foundational concepts to advanced integration
+- **Real-World Relevance**: Focus on industry-standard tools and techniques
+
+### Target Audience
+
+This book is designed for:
+
+- **Robotics Engineers** seeking to integrate modern AI techniques
+- **AI/ML Practitioners** wanting to apply their skills to physical systems
+- **Computer Science Students** interested in robotics and embodied AI
+- **Hobbyists and Makers** building humanoid robot projects
+- **Researchers** exploring Physical AI and embodied intelligence
+
+**Prerequisites**: Basic programming knowledge (Python preferred), Linux fundamentals, and curiosity about robotics. Prior robotics experience is helpful but not required.
+
+## Capstone Project Introduction: Autonomous Humanoid
+
+The culmination of this course is the **Autonomous Humanoid Capstone Project**, where you'll integrate everything you've learned into a complete, functioning system.
+
+### Project Overview
+
+You will design and implement an autonomous humanoid robot capable of:
+
+1. **Perceiving its Environment**
+   - Processing visual data from cameras
+   - Detecting obstacles with LiDAR
+   - Maintaining balance using IMU data
+   - Building real-time 3D maps with VSLAM
+
+2. **Planning and Decision Making**
+   - Understanding natural language commands
+   - Planning multi-step task sequences
+   - Navigating complex indoor environments
+   - Making intelligent decisions based on sensory input
+
+3. **Acting in the Physical World**
+   - Executing autonomous navigation
+   - Manipulating objects with precision
+   - Maintaining dynamic balance during movement
+   - Responding to voice commands and gestures
+
+4. **Learning and Adapting**
+   - Improving performance through reinforcement learning
+   - Transferring policies from simulation to real robots
+   - Handling unexpected situations gracefully
+   - Continuously refining behaviors based on experience
+
+### Project Milestones
+
+The capstone is structured as incremental milestones:
+
+- **Milestone 1**: ROS 2 architecture setup and basic humanoid model
+- **Milestone 2**: Simulated humanoid with sensor integration
+- **Milestone 3**: Autonomous navigation in simulated environments
+- **Milestone 4**: VLA integration for natural language control
+- **Milestone 5**: Complete system testing and refinement
+- **Milestone 6** (Optional): Physical robot deployment and sim-to-real transfer
+
+### What You'll Deliver
+
+By the end of the capstone, you will have:
+
+- A fully functional simulated humanoid robot
+- Complete ROS 2 package with documented code
+- Demonstration videos of autonomous behaviors
+- Technical documentation and architecture diagrams
+- Optional: Physical robot implementation (if hardware available)
+
+### Real-World Impact
+
+This capstone project mirrors real industry workflows at companies like Boston Dynamics, Agility Robotics, Tesla, and leading research labs. The skills you develop are directly applicable to careers in robotics, AI, and autonomous systems.
+
+## Book Structure and Navigation
+
+This book is organized into progressive modules:
+
+### Module 1: The Robotic Nervous System (ROS 2)
+Learn the communication infrastructure that coordinates all robotic components.
+
+### Module 2: The Digital Twin (Gazebo & Unity)
+Master physics simulation for safe development and testing.
+
+### Module 3: The AI-Robot Brain (NVIDIA Isaac)
+Implement AI-driven perception, navigation, and learning.
+
+### Module 4: Vision-Language-Action (VLA)
+Bridge high-level reasoning with low-level robot control.
+
+### Capstone Project
+Integrate all modules into a complete autonomous humanoid system.
+
+### Appendices
+Reference materials, setup guides, glossary, and recommended reading.
+
+## Getting Started
+
+Ready to begin your journey? Let's start with **Module 1: The Robotic Nervous System (ROS 2)** where you'll learn the foundational communication framework that powers modern robots.
+
+:::tip Before You Start
+
+Make sure your development environment is set up according to the [Hardware & Software Requirements](/docs/appendices/hardware-software). If you encounter setup issues, check the [Lab Setup Tips](/docs/appendices/lab-setup-tips) for troubleshooting guidance.
+
+:::
+
+Let's build the future of Physical AI together!
+
+---
+
+## References
+
+[^1]: Luo, Y., Xu, M., Wang, Y., & Li, Y. (2023). Physical AI: A New Paradigm for Embodied Intelligence. *IEEE Transactions on Robotics*, 39(4), 2845-2862.
+
+[^2]: Brooks, R. A. (1991). Intelligence without representation. *Artificial Intelligence*, 47(1-3), 139-159.
+
+[^3]: Pfeifer, R., & Bongard, J. (2006). *How the Body Shapes the Way We Think: A New View of Intelligence*. MIT Press.
+
+[^4]: Tsagarakis, N. G., Caldwell, D. G., Negrello, F., et al. (2017). WALK-MAN: A High-Performance Humanoid Platform for Realistic Environments. *Journal of Field Robotics*, 34(7), 1225-1259.
+
+[^5]: Goodrich, M. A., & Schultz, A. C. (2007). Human-robot interaction: A survey. *Foundations and Trends in Human-Computer Interaction*, 1(3), 203-275.
+
+[^6]: Broadbent, E., Stafford, R., & MacDonald, B. (2009). Acceptance of healthcare robots for the older population: Review and future directions. *International Journal of Social Robotics*, 1(4), 319-330.
+
+[^7]: MarketsandMarkets. (2022). Humanoid Robot Market by Component, Motion Type, Application, and Region - Global Forecast to 2027. Market Research Report.

@@ -1,0 +1,731 @@
+# Voice-to-Action with Whisper
+
+Voice control transforms robots into **natural conversational agents**. This section covers OpenAI Whisper for speech recognition, ROS 2 integration, and building voice-controlled autonomous systems.
+
+## Why Voice Control for Robots?
+
+Traditional robot interfaces require:
+- **Touchscreens**: Limited by reach and visibility
+- **Keyboards**: Impractical during physical tasks
+- **Mobile apps**: Requires pulling out phone
+
+**Voice control** enables:
+✅ **Hands-free** operation while carrying objects
+✅ **Eyes-free** control without looking at screens
+✅ **Natural** communication in human language
+✅ **Accessibility** for users with mobility impairments
+
+## Whisper: State-of-the-Art Speech Recognition
+
+**Whisper** (OpenAI, 2022)[^1] is a transformer-based model trained on 680,000 hours of multilingual audio.
+
+### Whisper vs. Alternatives
+
+| Model | Languages | Real-time | Accuracy (WER) | Cost |
+|-------|-----------|-----------|----------------|------|
+| **Whisper** | 99+ | Yes (small models) | 5-10% | Free (local) |
+| **Google Speech** | 125+ | Yes | 4-8% | $0.006/15sec |
+| **AWS Transcribe** | 30+ | Yes | 5-10% | $0.024/min |
+| **Vosk** | 20+ | Yes | 10-15% | Free (local) |
+
+**WER** (Word Error Rate): Lower is better (Whisper achieves human-level accuracy under 5%).
+
+### Whisper Model Sizes
+
+| Model | Parameters | VRAM | Speed (CPU) | Speed (GPU) | Use Case |
+|-------|------------|------|-------------|-------------|----------|
+| **tiny** | 39M | 1GB | 10x real-time | 50x | Edge devices, latency-critical |
+| **base** | 74M | 1GB | 7x | 30x | Balanced |
+| **small** | 244M | 2GB | 4x | 15x | Recommended for robots |
+| **medium** | 769M | 5GB | 2x | 8x | High accuracy |
+| **large** | 1550M | 10GB | 1x | 4x | Best accuracy, slow |
+
+**Recommendation**: Use **small** model for robotics (good accuracy, fast on Jetson Orin).
+
+## Installation
+
+### Install Whisper
+
+```bash
+# Install OpenAI Whisper
+pip install openai-whisper
+
+# Install ffmpeg (required for audio processing)
+sudo apt install ffmpeg
+
+# Test installation
+whisper --help
+```
+
+### Verify Microphone
+
+```bash
+# List audio devices
+arecord -l
+
+# Test recording (5 seconds)
+arecord -d 5 -f cd test.wav
+
+# Play back
+aplay test.wav
+```
+
+### Install ROS 2 Audio Packages
+
+```bash
+sudo apt install ros-humble-audio-common
+sudo apt install portaudio19-dev python3-pyaudio
+
+pip install pyaudio
+```
+
+## Basic Whisper Usage
+
+### Command-Line Transcription
+
+```bash
+# Record audio, then transcribe
+whisper audio.mp3 --model small --language English
+
+# Output files:
+# - audio.txt (transcript)
+# - audio.srt (subtitles)
+# - audio.vtt (web subtitles)
+```
+
+### Python API
+
+```python
+import whisper
+
+# Load model (downloads on first use, ~500MB for small)
+model = whisper.load_model("small")
+
+# Transcribe audio file
+result = model.transcribe("audio.mp3")
+
+print(result["text"])
+# Output: "Pick up the red cup and place it on the table"
+
+# Access word-level timestamps
+for segment in result["segments"]:
+    print(f"[{segment['start']:.2f}s - {segment['end']:.2f}s]: {segment['text']}")
+```
+
+## Real-Time Streaming Recognition
+
+### Microphone Streaming
+
+```python
+import whisper
+import pyaudio
+import numpy as np
+import io
+import wave
+
+class WhisperStreamingRecognizer:
+    def __init__(self, model_size="small"):
+        self.model = whisper.load_model(model_size)
+
+        # Audio settings (16kHz, mono, 16-bit)
+        self.RATE = 16000
+        self.CHANNELS = 1
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paInt16
+
+        self.audio = pyaudio.PyAudio()
+
+    def listen_and_transcribe(self, duration_seconds=5):
+        """Record audio for duration_seconds and transcribe"""
+
+        stream = self.audio.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            frames_per_buffer=self.CHUNK
+        )
+
+        print(f"Listening for {duration_seconds} seconds...")
+
+        frames = []
+        for _ in range(0, int(self.RATE / self.CHUNK * duration_seconds)):
+            data = stream.read(self.CHUNK)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+
+        # Convert recorded audio to numpy array
+        audio_data = np.frombuffer(b''.join(frames), dtype=np.int16)
+        audio_data = audio_data.astype(np.float32) / 32768.0  # Normalize
+
+        # Transcribe
+        result = self.model.transcribe(audio_data, fp16=False)
+
+        return result["text"]
+
+    def continuous_listen(self, callback):
+        """Continuously listen and call callback with transcriptions"""
+        print("Continuous listening mode. Say 'stop listening' to exit.")
+
+        while True:
+            transcript = self.listen_and_transcribe(duration_seconds=3)
+
+            if transcript.strip():  # Non-empty transcript
+                print(f"Heard: {transcript}")
+                callback(transcript)
+
+                if "stop listening" in transcript.lower():
+                    break
+
+# Usage
+def handle_command(text):
+    print(f"Command received: {text}")
+
+recognizer = WhisperStreamingRecognizer()
+recognizer.continuous_listen(handle_command)
+```
+
+## ROS 2 Integration
+
+### Voice Command Node Architecture
+
+```
+┌─────────────────────────────────────────┐
+│      Whisper Recognition Node           │
+│  - Captures microphone audio            │
+│  - Transcribes with Whisper             │
+│  - Publishes to /voice_command          │
+└────────────────┬────────────────────────┘
+                 │ std_msgs/String
+                 ↓
+┌─────────────────────────────────────────┐
+│      Command Interpreter Node           │
+│  - Parses intent and entities           │
+│  - Publishes to /parsed_command         │
+└────────────────┬────────────────────────┘
+                 │ robot_interfaces/Command
+                 ↓
+┌─────────────────────────────────────────┐
+│      Action Dispatcher Node             │
+│  - Routes to appropriate action server  │
+│  (Navigation, Manipulation, etc.)       │
+└─────────────────────────────────────────┘
+```
+
+### Voice Recognition Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import whisper
+import pyaudio
+import numpy as np
+import threading
+
+class VoiceRecognitionNode(Node):
+    def __init__(self):
+        super().__init__('voice_recognition')
+
+        # Parameters
+        self.declare_parameter('model_size', 'small')
+        self.declare_parameter('language', 'en')
+        self.declare_parameter('listen_duration', 3.0)  # seconds
+
+        model_size = self.get_parameter('model_size').value
+        self.language = self.get_parameter('language').value
+        self.listen_duration = self.get_parameter('listen_duration').value
+
+        # Load Whisper model
+        self.get_logger().info(f'Loading Whisper {model_size} model...')
+        self.model = whisper.load_model(model_size)
+        self.get_logger().info('Whisper model loaded')
+
+        # Publisher
+        self.command_pub = self.create_publisher(String, '/voice_command', 10)
+
+        # Audio settings
+        self.RATE = 16000
+        self.CHANNELS = 1
+        self.CHUNK = 1024
+        self.audio = pyaudio.PyAudio()
+
+        # Start listening thread
+        self.is_listening = True
+        self.listen_thread = threading.Thread(target=self.listen_loop)
+        self.listen_thread.start()
+
+        self.get_logger().info('Voice Recognition Node started')
+
+    def listen_loop(self):
+        """Continuously listen and transcribe"""
+        while self.is_listening and rclpy.ok():
+            transcript = self.capture_and_transcribe()
+
+            if transcript.strip():
+                self.get_logger().info(f'Transcribed: "{transcript}"')
+
+                msg = String()
+                msg.data = transcript
+                self.command_pub.publish(msg)
+
+    def capture_and_transcribe(self):
+        """Capture audio and transcribe with Whisper"""
+        stream = self.audio.open(
+            format=pyaudio.paInt16,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            frames_per_buffer=self.CHUNK
+        )
+
+        frames = []
+        num_frames = int(self.RATE / self.CHUNK * self.listen_duration)
+
+        for _ in range(num_frames):
+            data = stream.read(self.CHUNK)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+
+        # Convert to numpy array
+        audio_data = np.frombuffer(b''.join(frames), dtype=np.int16)
+        audio_data = audio_data.astype(np.float32) / 32768.0
+
+        # Transcribe
+        result = self.model.transcribe(
+            audio_data,
+            language=self.language,
+            fp16=False
+        )
+
+        return result["text"]
+
+    def destroy_node(self):
+        self.is_listening = False
+        self.listen_thread.join()
+        self.audio.terminate()
+        super().destroy_node()
+
+def main():
+    rclpy.init()
+    node = VoiceRecognitionNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Command Interpreter Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from robot_interfaces.msg import Command  # Custom message
+import re
+
+class CommandInterpreterNode(Node):
+    def __init__(self):
+        super().__init__('command_interpreter')
+
+        # Subscriber
+        self.voice_sub = self.create_subscription(
+            String,
+            '/voice_command',
+            self.voice_callback,
+            10
+        )
+
+        # Publisher
+        self.command_pub = self.create_publisher(Command, '/parsed_command', 10)
+
+        # Intent patterns
+        self.patterns = {
+            'navigate': [
+                r'go to (the )?(.*)',
+                r'navigate to (the )?(.*)',
+                r'move to (the )?(.*)',
+            ],
+            'pick': [
+                r'pick up (the )?(.*)',
+                r'grab (the )?(.*)',
+                r'grasp (the )?(.*)',
+            ],
+            'place': [
+                r'put (it )?(down )?(?:on |at )?(the )?(.*)',
+                r'place (it )?(?:on |at )?(the )?(.*)',
+            ],
+        }
+
+        self.get_logger().info('Command Interpreter Node started')
+
+    def voice_callback(self, msg):
+        text = msg.data.lower().strip()
+        self.get_logger().info(f'Interpreting: "{text}"')
+
+        # Parse command
+        parsed = self.parse_intent(text)
+
+        if parsed:
+            command_msg = Command()
+            command_msg.intent = parsed['intent']
+            command_msg.entity = parsed.get('entity', '')
+            self.command_pub.publish(command_msg)
+
+            self.get_logger().info(f'Parsed: {parsed["intent"]} -> {parsed.get("entity", "")}')
+        else:
+            self.get_logger().warn(f'Could not parse command: "{text}"')
+
+    def parse_intent(self, text):
+        """Extract intent and entities from text"""
+        for intent, patterns in self.patterns.items():
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    entity = match.group(match.lastindex) if match.lastindex else ''
+                    return {'intent': intent, 'entity': entity.strip()}
+
+        return None
+
+def main():
+    rclpy.init()
+    node = CommandInterpreterNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Wake Word Detection
+
+Add **wake word** ("Hey Robot") to avoid false activations:
+
+```python
+from pvporcupine import create
+
+class WakeWordDetector:
+    def __init__(self, keyword="hey robot"):
+        # Porcupine wake word detection (https://picovoice.ai/)
+        self.porcupine = create(keywords=[keyword])
+
+        self.audio = pyaudio.PyAudio()
+        self.stream = self.audio.open(
+            rate=self.porcupine.sample_rate,
+            channels=1,
+            format=pyaudio.paInt16,
+            input=True,
+            frames_per_buffer=self.porcupine.frame_length
+        )
+
+    def wait_for_wake_word(self):
+        """Block until wake word is detected"""
+        print("Listening for 'Hey Robot'...")
+
+        while True:
+            pcm = self.stream.read(self.porcupine.frame_length)
+            pcm = np.frombuffer(pcm, dtype=np.int16)
+
+            keyword_index = self.porcupine.process(pcm)
+
+            if keyword_index >= 0:
+                print("Wake word detected!")
+                return True
+
+# Usage
+detector = WakeWordDetector()
+detector.wait_for_wake_word()
+
+# Now start Whisper transcription
+recognizer = WhisperStreamingRecognizer()
+command = recognizer.listen_and_transcribe(duration_seconds=5)
+```
+
+## Language Understanding with LLMs
+
+Combine Whisper with LLMs for robust intent extraction:
+
+```python
+import openai
+
+class LLMCommandParser:
+    def __init__(self, api_key):
+        openai.api_key = api_key
+
+    def parse(self, transcription):
+        """Use LLM to extract structured command"""
+
+        prompt = f"""
+        Parse this robot command: "{transcription}"
+
+        Output JSON with:
+        - intent: main action (navigate, pick, place, etc.)
+        - object: target object (if any)
+        - location: destination (if any)
+        - modifiers: color, size, etc.
+
+        Example:
+        Input: "Pick up the red cup and place it on the table"
+        Output: {{"intent": "pick_and_place", "object": "cup", "modifiers": {{"color": "red"}}, "location": "table"}}
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a robot command parser."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+
+        return json.loads(response.choices[0].message.content)
+
+# Usage
+parser = LLMCommandParser(api_key="your_key")
+command = "Go to the kitchen and bring me a spoon"
+parsed = parser.parse(command)
+# Output: {"intent": "fetch", "object": "spoon", "location": "kitchen"}
+```
+
+## Multi-Language Support
+
+Whisper supports 99 languages out-of-the-box:
+
+```python
+# Spanish
+result = model.transcribe("audio.mp3", language="es")
+
+# French
+result = model.transcribe("audio.mp3", language="fr")
+
+# Auto-detect language
+result = model.transcribe("audio.mp3", task="transcribe")
+print(result["language"])  # Detected: "en"
+```
+
+## Performance Optimization
+
+### GPU Acceleration
+
+```python
+# Force GPU (CUDA)
+model = whisper.load_model("small", device="cuda")
+
+# Mixed precision (FP16) for 2x speedup
+result = model.transcribe(audio, fp16=True)
+```
+
+### Batching (for recorded audio)
+
+```python
+# Transcribe multiple files in parallel
+audio_files = ["audio1.mp3", "audio2.mp3", "audio3.mp3"]
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    results = list(executor.map(model.transcribe, audio_files))
+```
+
+### Model Quantization (for Jetson)
+
+```bash
+# Use WhisperX (optimized Whisper)
+pip install whisperx
+
+# Faster inference with batching + VAD
+import whisperx
+
+model = whisperx.load_model("small", device="cuda", compute_type="int8")
+result = model.transcribe("audio.mp3", batch_size=16)
+```
+
+## Handling Noisy Environments
+
+### Voice Activity Detection (VAD)
+
+Filter silence to reduce false transcriptions:
+
+```python
+import webrtcvad
+
+class VADFilter:
+    def __init__(self, aggressiveness=3):
+        self.vad = webrtcvad.Vad(aggressiveness)  # 0-3, higher = more aggressive
+
+    def is_speech(self, audio_frame, sample_rate=16000):
+        """Check if audio frame contains speech"""
+        return self.vad.is_speech(audio_frame, sample_rate)
+
+# Usage
+vad = VADFilter()
+if vad.is_speech(audio_chunk, sample_rate=16000):
+    transcript = model.transcribe(audio_chunk)
+else:
+    print("No speech detected, skipping transcription")
+```
+
+### Noise Reduction
+
+```bash
+# Install noise reduction library
+pip install noisereduce
+
+# Apply before transcription
+import noisereduce as nr
+
+audio_clean = nr.reduce_noise(y=audio_data, sr=16000)
+result = model.transcribe(audio_clean)
+```
+
+## Text-to-Speech (TTS) Feedback
+
+Add robot voice responses:
+
+```python
+from gtts import gTTS
+import os
+
+def speak(text):
+    """Convert text to speech and play"""
+    tts = gTTS(text=text, lang='en')
+    tts.save("response.mp3")
+    os.system("mpg123 response.mp3")  # or use playsound
+
+# Usage
+speak("I am navigating to the kitchen")
+```
+
+**Better alternative**: Use ElevenLabs or Coqui TTS for more natural voices.
+
+## Complete Voice-Controlled Navigation Example
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+import whisper
+import pyaudio
+import numpy as np
+
+class VoiceNavigationNode(Node):
+    def __init__(self):
+        super().__init__('voice_navigation')
+
+        # Whisper model
+        self.model = whisper.load_model("small")
+
+        # Navigation action client
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+
+        # Predefined locations
+        self.locations = {
+            "kitchen": {"x": 2.0, "y": 1.0},
+            "living room": {"x": 0.0, "y": 0.0},
+            "bedroom": {"x": -2.0, "y": 3.0},
+        }
+
+        self.get_logger().info('Voice Navigation ready. Say "Go to [location]"')
+
+        # Start listening
+        self.listen_and_navigate()
+
+    def listen_and_navigate(self):
+        """Continuous listening loop"""
+        while rclpy.ok():
+            command = self.capture_voice_command()
+
+            if command:
+                self.get_logger().info(f'Command: "{command}"')
+                self.process_command(command)
+
+    def capture_voice_command(self):
+        """Capture and transcribe voice"""
+        audio = pyaudio.PyAudio()
+        stream = audio.open(rate=16000, channels=1, format=pyaudio.paInt16, input=True, frames_per_buffer=1024)
+
+        frames = []
+        for _ in range(0, int(16000 / 1024 * 3)):  # 3 seconds
+            data = stream.read(1024)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+        audio.terminate()
+
+        audio_data = np.frombuffer(b''.join(frames), dtype=np.int16).astype(np.float32) / 32768.0
+        result = self.model.transcribe(audio_data, fp16=False)
+
+        return result["text"].strip()
+
+    def process_command(self, command):
+        """Parse command and navigate"""
+        command_lower = command.lower()
+
+        for location_name, coords in self.locations.items():
+            if location_name in command_lower:
+                self.get_logger().info(f'Navigating to {location_name}')
+                self.navigate_to(coords["x"], coords["y"])
+                return
+
+        self.get_logger().warn(f'Unknown location in command: "{command}"')
+
+    def navigate_to(self, x, y):
+        """Send navigation goal"""
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.pose.pose.position.x = x
+        goal_msg.pose.pose.position.y = y
+        goal_msg.pose.pose.orientation.w = 1.0
+
+        self.nav_client.wait_for_server()
+        self.nav_client.send_goal_async(goal_msg)
+
+        self.get_logger().info(f'Goal sent: ({x}, {y})')
+
+def main():
+    rclpy.init()
+    node = VoiceNavigationNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Summary
+
+Voice control with Whisper provides:
+
+✅ **Natural interaction** through speech
+✅ **Multilingual support** (99 languages)
+✅ **Real-time transcription** with small models
+✅ **Local deployment** for privacy and low latency
+✅ **ROS 2 integration** for robotic systems
+
+**Best practices**:
+- Use **small** model for robotics (good trade-off)
+- Add **wake word** detection to avoid false activations
+- Combine with **LLMs** for robust intent parsing
+- Implement **VAD** to filter silence
+- Provide **TTS feedback** for better UX
+
+## Next Steps
+
+Continue to [Multi-Modal Interaction](./multi-modal-interaction.mdx) to combine voice with vision and gestures!
+
+---
+
+## References
+
+[^1]: Radford, A., et al. (2022). Robust Speech Recognition via Large-Scale Weak Supervision. *OpenAI Technical Report*.
+
+[^2]: Baevski, A., et al. (2020). wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations. *NeurIPS 2020*.
+
+[^3]: Gulati, A., et al. (2020). Conformer: Convolution-augmented Transformer for Speech Recognition. *Interspeech 2020*.
+
+[^4]: Chen, S., et al. (2022). WavLM: Large-Scale Self-Supervised Pre-Training for Full Stack Speech Processing. *IEEE JSTSP*, 16(6), 1505-1518.

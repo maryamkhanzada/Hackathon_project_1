@@ -1,0 +1,271 @@
+# Complete System Configuration for Autonomous Humanoid Assistant
+# Place in: ~/capstone_ws/src/humanoid_capstone/config/system_config.yaml
+
+# Voice Control Configuration
+voice_control:
+  whisper:
+    model_size: "small"  # tiny, base, small, medium, large
+    language: "en"  # Language code or null for auto-detect
+    listen_duration: 3.0  # seconds
+    vad_enabled: true  # Voice Activity Detection
+    vad_aggressiveness: 3  # 0-3, higher = more aggressive
+
+  wake_word:
+    enabled: false
+    keyword: "hey robot"
+    sensitivity: 0.5  # 0.0-1.0
+
+# Task Planning Configuration
+task_planning:
+  llm:
+    provider: "openai"  # openai, anthropic, local
+    model: "gpt-4-turbo-preview"
+    temperature: 0.1
+    max_tokens: 500
+    timeout: 10.0  # seconds
+
+  local_llm:  # For offline operation
+    enabled: false
+    model: "llama3.1:8b"
+    endpoint: "http://localhost:11434"
+
+  actions:
+    - "navigate"
+    - "detect_objects"
+    - "grasp"
+    - "place"
+    - "open"
+    - "close"
+    - "wait"
+    - "say"
+
+  locations:
+    kitchen: [2.0, 0.0, 0.0]
+    living_room: [0.0, 0.0, 0.0]
+    bedroom: [-2.0, 2.0, 0.0]
+    garage: [4.0, -2.0, 0.0]
+
+# Visual Perception Configuration
+visual_perception:
+  object_detection:
+    model: "yolov8n.pt"  # or yolov8n.engine for TensorRT
+    confidence_threshold: 0.5
+    iou_threshold: 0.45
+    max_detections: 100
+    device: "cuda"  # cuda or cpu
+
+  visual_grounding:
+    clip_model: "ViT-B/32"  # ViT-B/32, ViT-L/14
+    similarity_threshold: 0.25
+    device: "cuda"
+
+  depth_estimation:
+    enabled: true
+    min_depth: 0.3  # meters
+    max_depth: 10.0  # meters
+
+# Navigation Configuration (Nav2)
+navigation:
+  robot_base_frame: "base_link"
+  global_frame: "map"
+  odom_frame: "odom"
+
+  controller:
+    max_vel_x: 0.5  # m/s
+    max_vel_theta: 1.0  # rad/s
+    min_vel_x: -0.2  # for backward motion
+    acc_lim_x: 0.5  # m/s^2
+    acc_lim_theta: 1.5  # rad/s^2
+
+  local_costmap:
+    width: 5.0  # meters
+    height: 5.0
+    resolution: 0.05  # meters/cell
+    update_frequency: 5.0  # Hz
+    publish_frequency: 2.0
+
+  global_costmap:
+    width: 50.0
+    height: 50.0
+    resolution: 0.1
+    update_frequency: 1.0
+    publish_frequency: 1.0
+
+  planner:
+    type: "NavfnPlanner"  # NavfnPlanner, SmacPlanner
+    tolerance: 0.5  # meters
+    use_astar: false
+
+  recovery_behaviors:
+    - name: "clear_costmap"
+      enabled: true
+    - name: "rotate_recovery"
+      enabled: true
+    - name: "backup_recovery"
+      enabled: false
+
+# Manipulation Configuration (MoveIt2)
+manipulation:
+  planning_group: "arm"
+  end_effector_link: "gripper_link"
+  planning_time: 5.0  # seconds
+  planning_attempts: 10
+  goal_tolerance: 0.01  # meters
+  velocity_scaling: 0.5  # 0.0-1.0
+  acceleration_scaling: 0.5
+
+  grasp:
+    approach_distance: 0.1  # meters
+    retreat_distance: 0.1
+    grasp_duration: 2.0  # seconds
+
+  gripper:
+    open_position: 0.08  # meters
+    closed_position: 0.0
+    force_limit: 20.0  # Newtons
+
+# Multi-Modal Fusion Configuration
+multimodal_fusion:
+  timeout: 2.0  # seconds to wait for all modalities
+  confidence_threshold: 0.6
+
+  weights:
+    voice: 0.5
+    vision: 0.3
+    gesture: 0.2
+
+# Action Execution Configuration
+action_execution:
+  max_retries: 3
+  retry_delay: 2.0  # seconds
+
+  timeouts:
+    navigate: 60.0  # seconds
+    grasp: 10.0
+    place: 10.0
+    detect_objects: 5.0
+
+  recovery:
+    enabled: true
+    strategies:
+      - "retry"
+      - "replan"
+      - "request_help"
+
+# Safety Configuration
+safety:
+  enabled: true
+
+  collision_avoidance:
+    min_obstacle_distance: 0.5  # meters
+    emergency_stop_distance: 0.3
+
+  velocity_limits:
+    max_linear: 0.5  # m/s
+    max_angular: 1.0  # rad/s
+
+  workspace_bounds:
+    x_min: -5.0  # meters
+    x_max: 5.0
+    y_min: -5.0
+    y_max: 5.0
+    z_min: 0.0
+    z_max: 2.0
+
+  forbidden_zones:
+    - name: "stairs"
+      bounds: [[1.0, 1.0], [2.0, 2.0]]
+    - name: "fragile_area"
+      bounds: [[-1.0, -1.0], [0.0, 0.0]]
+
+# Monitoring Configuration
+monitoring:
+  system_monitor:
+    enabled: true
+    frequency: 1.0  # Hz
+
+  metrics:
+    - "cpu_usage"
+    - "memory_usage"
+    - "gpu_usage"
+    - "network_latency"
+    - "node_status"
+
+  logging:
+    level: "info"  # debug, info, warn, error
+    log_to_file: true
+    log_directory: "/var/log/humanoid_capstone"
+
+  alerts:
+    enabled: true
+    email_notifications: false
+    webhook_url: null
+
+# TTS Feedback Configuration
+tts_feedback:
+  enabled: true
+  provider: "gtts"  # gtts, espeak, google_cloud
+  language: "en"
+  speed: 1.0  # 0.5-2.0
+
+  phrases:
+    task_started: "Starting task"
+    task_complete: "Task completed"
+    navigation_started: "Navigating to {location}"
+    object_detected: "I see a {object}"
+    error: "I encountered a problem: {error}"
+
+# Isaac Sim Configuration (if using simulation)
+isaac_sim:
+  headless: false
+  physics_dt: 0.01  # seconds
+  rendering_dt: 0.033  # ~30 FPS
+
+  ros2_bridge:
+    enabled: true
+    domain_id: 0
+
+  sensors:
+    camera:
+      resolution: [640, 480]
+      fps: 30
+      fov: 90  # degrees
+
+    imu:
+      frequency: 100  # Hz
+
+    depth_camera:
+      resolution: [640, 480]
+      fps: 30
+      range: [0.3, 10.0]  # meters
+
+# Performance Configuration
+performance:
+  multi_threading: true
+  num_threads: 4
+
+  gpu:
+    device_id: 0
+    memory_fraction: 0.8  # Use 80% of GPU memory
+
+  optimization:
+    use_tensorrt: true
+    use_fp16: true
+    batch_inference: false
+
+# Development Configuration
+development:
+  debug_mode: false
+  verbose_logging: false
+  save_recordings: false
+  recording_directory: "/tmp/recordings"
+
+  simulation:
+    slow_motion: false
+    time_scale: 1.0
+
+  visualization:
+    rviz_config: "config/capstone.rviz"
+    show_trajectories: true
+    show_detections: true
+    show_costmaps: true

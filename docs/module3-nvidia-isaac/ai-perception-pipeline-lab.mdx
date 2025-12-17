@@ -1,0 +1,613 @@
+# AI Perception Pipeline Lab
+
+This hands-on lab integrates Isaac Sim, Isaac ROS, and Nav2 into a complete AI perception system. You'll build a humanoid robot that uses vision to navigate to detected objects autonomously.
+
+## Lab Overview
+
+**Goal**: Create a humanoid robot that:
+1. Perceives environment using stereo camera
+2. Detects objects with neural network
+3. Localizes using visual SLAM
+4. Navigates autonomously to detected objects
+
+**Time**: 3-4 hours
+
+**Prerequisites**:
+- Isaac Sim installed
+- Isaac ROS Docker environment ready
+- ROS 2 Humble workspace
+- GPU with 8GB+ VRAM
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│          Isaac Sim (Simulation)                 │
+│  ┌──────────┐  ┌────────┐  ┌─────────────┐    │
+│  │ Humanoid │  │ Stereo │  │ Environment │    │
+│  │  Robot   │  │ Camera │  │   (Office)  │    │
+│  └──────────┘  └────────┘  └─────────────┘    │
+└─────────────┬───────────────────────────────────┘
+              │ ROS 2 Bridge
+              ↓
+┌─────────────────────────────────────────────────┐
+│           Isaac ROS (Perception)                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │
+│  │  Visual  │  │  Stereo  │  │    Object    │ │
+│  │   SLAM   │  │  Depth   │  │  Detection   │ │
+│  └──────────┘  └──────────┘  └──────────────┘ │
+└─────────────┬───────────────────────────────────┘
+              │
+              ↓
+┌─────────────────────────────────────────────────┐
+│          Nav2 (Navigation)                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │
+│  │ Costmap  │  │ Planner  │  │  Controller  │ │
+│  └──────────┘  └──────────┘  └──────────────┘ │
+└─────────────────────────────────────────────────┘
+```
+
+## Part 1: Setup Isaac Sim Environment
+
+### Create Workspace
+
+```bash
+mkdir -p ~/humanoid_perception_lab
+cd ~/humanoid_perception_lab
+mkdir -p src launch config
+```
+
+### Isaac Sim Scene Script
+
+Create `isaac_sim_scene.py`:
+
+```python
+from omni.isaac.kit import SimulationApp
+
+# Launch Isaac Sim
+simulation_app = SimulationApp({"headless": False})
+
+from omni.isaac.core import World
+from omni.isaac.core.robots import Robot
+from omni.isaac.core.utils.stage import add_reference_to_stage
+from omni.isaac.core.utils.extensions import enable_extension
+from omni.isaac.sensor import Camera
+import omni.replicator.core as rep
+
+# Enable ROS2 bridge
+enable_extension("omni.isaac.ros2_bridge")
+
+# Create world
+world = World()
+world.scene.add_default_ground_plane()
+
+# Add office environment
+add_reference_to_stage(
+    usd_path="/Isaac/Environments/Simple_Room/simple_room.usd",
+    prim_path="/World/Office"
+)
+
+# Add humanoid robot (use pre-made or import your URDF)
+add_reference_to_stage(
+    usd_path="/Isaac/Robots/Humanoid/humanoid_instanceable.usd",
+    prim_path="/World/Humanoid"
+)
+
+# Add target objects to detect
+cube1 = world.scene.add(
+    DynamicCuboid(
+        prim_path="/World/RedCube",
+        name="target_object",
+        position=[3.0, 0.0, 0.5],
+        scale=[0.2, 0.2, 0.2],
+        color=[1.0, 0.0, 0.0]  # Red
+    )
+)
+
+# Add stereo cameras to robot head
+left_camera = Camera(
+    prim_path="/World/Humanoid/head/left_camera",
+    frequency=30,
+    resolution=(640, 480)
+)
+
+right_camera = Camera(
+    prim_path="/World/Humanoid/head/right_camera",
+    frequency=30,
+    resolution=(640, 480)
+)
+
+# Position cameras (stereo baseline = 10cm)
+left_camera.set_local_pose(translation=[0.05, 0.05, 0], orientation=[0.707, 0, 0, 0.707])
+right_camera.set_local_pose(translation=[0.05, -0.05, 0], orientation=[0.707, 0, 0, 0.707])
+
+# Configure ROS2 publishing
+import omni.graph.core as og
+
+# Create action graph for ROS2 bridge
+keys = og.Controller.Keys
+(graph, nodes, _, _) = og.Controller.edit(
+    {"graph_path": "/ActionGraph", "evaluator_name": "execution"},
+    {
+        keys.CREATE_NODES: [
+            ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+            ("PublishCameraLeft", "omni.isaac.ros2_bridge.ROS2CameraHelper"),
+            ("PublishCameraRight", "omni.isaac.ros2_bridge.ROS2CameraHelper"),
+            ("PublishTF", "omni.isaac.ros2_bridge.ROS2PublishTransformTree"),
+            ("PublishClock", "omni.isaac.ros2_bridge.ROS2PublishClock"),
+        ],
+        keys.SET_VALUES: [
+            ("PublishCameraLeft.inputs:cameraPrim", ["/World/Humanoid/head/left_camera"]),
+            ("PublishCameraLeft.inputs:topicName", "/stereo/left/image_raw"),
+            ("PublishCameraRight.inputs:cameraPrim", ["/World/Humanoid/head/right_camera"]),
+            ("PublishCameraRight.inputs:topicName", "/stereo/right/image_raw"),
+            ("PublishTF.inputs:targetPrims", ["/World/Humanoid"]),
+        ],
+        keys.CONNECT: [
+            ("OnPlaybackTick.outputs:tick", "PublishCameraLeft.inputs:execIn"),
+            ("OnPlaybackTick.outputs:tick", "PublishCameraRight.inputs:execIn"),
+            ("OnPlaybackTick.outputs:tick", "PublishTF.inputs:execIn"),
+            ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
+        ],
+    },
+)
+
+# Run simulation
+world.reset()
+while simulation_app.is_running():
+    world.step(render=True)
+
+simulation_app.close()
+```
+
+### Launch Isaac Sim
+
+```bash
+${ISAAC_SIM_PATH}/python.sh isaac_sim_scene.py
+```
+
+## Part 2: Isaac ROS Perception Pipeline
+
+### Launch Isaac ROS Container
+
+```bash
+cd ~/isaac_ros_common
+./scripts/run_dev.sh
+```
+
+### Create Perception Launch File
+
+Inside container, create `perception_pipeline.launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch_ros.actions import Node, ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+
+def generate_launch_description():
+    return LaunchDescription([
+        # Visual SLAM
+        ComposableNodeContainer(
+            name='visual_slam_container',
+            namespace='',
+            package='rclcpp_components',
+            executable='component_container_mt',
+            composable_node_descriptions=[
+                ComposableNode(
+                    package='isaac_ros_visual_slam',
+                    plugin='nvidia::isaac_ros::visual_slam::VisualSlamNode',
+                    name='visual_slam',
+                    parameters=[{
+                        'enable_image_denoising': True,
+                        'rectified_images': True,
+                        'enable_imu_fusion': False,
+                    }],
+                    remappings=[
+                        ('/stereo_camera/left/image', '/stereo/left/image_raw'),
+                        ('/stereo_camera/right/image', '/stereo/right/image_raw'),
+                    ]
+                ),
+            ],
+            output='screen'
+        ),
+
+        # Stereo Disparity
+        ComposableNodeContainer(
+            name='stereo_container',
+            namespace='',
+            package='rclcpp_components',
+            executable='component_container_mt',
+            composable_node_descriptions=[
+                ComposableNode(
+                    package='isaac_ros_stereo_image_proc',
+                    plugin='nvidia::isaac_ros::stereo_image_proc::DisparityNode',
+                    name='disparity',
+                    parameters=[{
+                        'backends': 'CUDA',
+                        'max_disparity': 64,
+                    }],
+                    remappings=[
+                        ('/left/image_rect', '/stereo/left/image_raw'),
+                        ('/right/image_rect', '/stereo/right/image_raw'),
+                    ]
+                ),
+                # Convert disparity to depth
+                ComposableNode(
+                    package='isaac_ros_stereo_image_proc',
+                    plugin='nvidia::isaac_ros::stereo_image_proc::PointCloudNode',
+                    name='point_cloud',
+                    parameters=[{
+                        'use_color': True,
+                    }],
+                    remappings=[
+                        ('/left/image_rect_color', '/stereo/left/image_raw'),
+                    ]
+                ),
+            ],
+            output='screen'
+        ),
+
+        # Object Detection
+        Node(
+            package='isaac_ros_dnn_inference',
+            executable='isaac_ros_dnn_inference',
+            name='dnn_inference',
+            parameters=[{
+                'model_file_path': '/models/detectnet_resnet18.onnx',
+                'engine_file_path': '/tmp/detectnet.plan',
+                'input_tensor_names': ['input_tensor'],
+                'input_binding_names': ['input_1'],
+                'output_tensor_names': ['output_tensor'],
+                'output_binding_names': ['output_cov/Sigmoid', 'output_bbox/BiasAdd'],
+                'verbose': False,
+                'force_engine_update': False
+            }],
+            remappings=[
+                ('/tensor_pub', '/stereo/left/image_raw'),
+            ]
+        ),
+
+        # Detection postprocessing
+        Node(
+            package='isaac_ros_detectnet',
+            executable='isaac_ros_detectnet',
+            name='detectnet_decoder',
+            parameters=[{
+                'label_list': ['cube', 'person', 'chair'],
+            }],
+            remappings=[
+                ('/tensor_sub', '/tensor_pub'),
+                ('/detectnet/detections', '/detections'),
+            ]
+        ),
+    ])
+```
+
+### Launch Perception
+
+```bash
+ros2 launch perception_pipeline.launch.py
+```
+
+## Part 3: Navigation Integration
+
+### Configure Nav2 for Vision-Based Navigation
+
+Create `nav2_params.yaml` (see Nav2 section for full config), key excerpts:
+
+```yaml
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      plugins: ["static_layer", "obstacle_layer", "voxel_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: pointcloud
+
+        pointcloud:
+          topic: /points2  # From Isaac ROS stereo
+          data_type: "PointCloud2"
+          marking: True
+          clearing: True
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.0
+
+amcl:
+  ros__parameters:
+    # Use Visual SLAM odometry
+    odom_frame_id: "odom"
+    odom_model_type: "diff-corrected"
+    set_initial_pose: true
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+```
+
+### Launch Nav2
+
+```bash
+ros2 launch nav2_bringup navigation_launch.py params_file:=nav2_params.yaml
+```
+
+## Part 4: Object-Based Navigation Node
+
+Create node that navigates to detected objects:
+
+```python
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient
+from vision_msgs.msg import Detection2DArray
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from nav2_msgs.action import NavigateToPose
+from tf2_ros import Buffer, TransformListener
+import math
+
+class ObjectNavigator(Node):
+    def __init__(self):
+        super().__init__('object_navigator')
+
+        # Action client for navigation
+        self._nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+
+        # Subscribe to detections
+        self.detection_sub = self.create_subscription(
+            Detection2DArray,
+            '/detections',
+            self.detection_callback,
+            10
+        )
+
+        # TF for coordinate transforms
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.target_object = "cube"  # Look for red cube
+        self.navigating = False
+
+        self.get_logger().info('Object Navigator initialized')
+
+    def detection_callback(self, msg):
+        if self.navigating:
+            return  # Already navigating
+
+        # Find target object
+        for detection in msg.detections:
+            for result in detection.results:
+                if result.hypothesis.class_id == self.target_object:
+                    self.get_logger().info(f'Detected {self.target_object}!')
+                    self.navigate_to_detection(detection)
+                    return
+
+    def navigate_to_detection(self, detection):
+        # Estimate 3D position from 2D detection and depth
+        bbox = detection.bbox
+        center_x = bbox.center.position.x
+        center_y = bbox.center.position.y
+
+        # Get depth at detection center (from point cloud or depth image)
+        # Simplified: assume fixed distance for demo
+        object_distance = 2.0  # meters
+
+        # Convert to robot-relative coordinates
+        # Assuming camera forward is +X, left is +Y
+        theta = math.atan2(center_y - 320, 320)  # Image center at (320, 240)
+        rel_x = object_distance * math.cos(theta)
+        rel_y = object_distance * math.sin(theta)
+
+        # Transform to map frame
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()
+            )
+
+            # Goal is 0.5m in front of object
+            goal = PoseStamped()
+            goal.header.frame_id = 'map'
+            goal.header.stamp = self.get_clock().now().to_msg()
+            goal.pose.position.x = transform.transform.translation.x + rel_x - 0.5
+            goal.pose.position.y = transform.transform.translation.y + rel_y
+            goal.pose.position.z = 0.0
+            goal.pose.orientation = transform.transform.rotation
+
+            # Send navigation goal
+            self.send_nav_goal(goal)
+
+        except Exception as e:
+            self.get_logger().error(f'Transform failed: {e}')
+
+    def send_nav_goal(self, goal_pose):
+        self.get_logger().info(f'Navigating to object at ({goal_pose.pose.position.x:.2f}, {goal_pose.pose.position.y:.2f})')
+
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = goal_pose
+
+        self._nav_client.wait_for_server()
+        self.navigating = True
+
+        send_goal_future = self._nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.nav_feedback_callback
+        )
+        send_goal_future.add_done_callback(self.nav_goal_response_callback)
+
+    def nav_feedback_callback(self, feedback_msg):
+        feedback = feedback_msg.feedback
+        self.get_logger().info(f'Distance remaining: {feedback.distance_remaining:.2f}m')
+
+    def nav_goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().info('Goal rejected')
+            self.navigating = False
+            return
+
+        self.get_logger().info('Goal accepted')
+
+        get_result_future = goal_handle.get_result_async()
+        get_result_future.add_done_callback(self.nav_result_callback)
+
+    def nav_result_callback(self, future):
+        result = future.result().result
+        self.get_logger().info(f'Navigation complete: {result}')
+        self.navigating = False
+
+def main():
+    rclpy.init()
+    navigator = ObjectNavigator()
+    rclpy.spin(navigator)
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Part 5: Complete System Launch
+
+Create master launch file `full_system.launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+import os
+
+def generate_launch_description():
+    return LaunchDescription([
+        # Isaac ROS Perception
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource('perception_pipeline.launch.py')
+        ),
+
+        # Nav2 Navigation
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(
+                    get_package_share_directory('nav2_bringup'),
+                    'launch',
+                    'navigation_launch.py'
+                )
+            ),
+            launch_arguments={'params_file': 'nav2_params.yaml'}.items()
+        ),
+
+        # Object Navigator
+        Node(
+            package='humanoid_perception_lab',
+            executable='object_navigator',
+            name='object_navigator',
+            output='screen'
+        ),
+
+        # RViz
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', 'config/lab.rviz']
+        ),
+    ])
+```
+
+### Run Complete System
+
+**Terminal 1** (Isaac Sim):
+```bash
+${ISAAC_SIM_PATH}/python.sh isaac_sim_scene.py
+```
+
+**Terminal 2** (Isaac ROS + Nav2 + Navigator):
+```bash
+# Inside Isaac ROS container
+ros2 launch humanoid_perception_lab full_system.launch.py
+```
+
+## Part 6: Testing and Validation
+
+### Checklist
+
+- [ ] Isaac Sim running with humanoid and environment
+- [ ] ROS topics publishing:
+  - `/stereo/left/image_raw` (~30 Hz)
+  - `/stereo/right/image_raw` (~30 Hz)
+  - `/visual_slam/tracking/odometry` (~30 Hz)
+  - `/points2` (point cloud, ~10 Hz)
+  - `/detections` (when object visible)
+- [ ] Nav2 costmap shows obstacles
+- [ ] TF tree complete (map → odom → base_link → cameras)
+- [ ] Object navigator detects cube
+- [ ] Navigation goal sent automatically
+- [ ] Robot moves toward detected object
+
+### Troubleshooting
+
+**No detections**:
+```bash
+# Verify camera images
+ros2 run rqt_image_view rqt_image_view /stereo/left/image_raw
+
+# Check DNN model loaded
+ros2 topic echo /detections --once
+```
+
+**Navigation fails**:
+```bash
+# Check VSLAM working
+ros2 topic hz /visual_slam/tracking/odometry
+
+# Verify costmap has data
+rviz2  # View /global_costmap/costmap
+```
+
+**Robot doesn't move**:
+```bash
+# Test manual goal
+ros2 topic pub --once /goal_pose geometry_msgs/PoseStamped \
+  "{header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}}}"
+```
+
+## Extension Challenges
+
+### Challenge 1: Multi-Object Detection
+Detect multiple object types (cube, sphere, person) and prioritize navigation targets.
+
+### Challenge 2: Grasping Integration
+After reaching object, trigger manipulation action to grasp it.
+
+### Challenge 3: Dynamic Replanning
+Re-detect object if it moves, update navigation goal in real-time.
+
+### Challenge 4: Real Robot Deployment
+Deploy the same pipeline to Jetson Orin on physical humanoid.
+
+## Summary
+
+This lab demonstrated:
+
+✅ **Isaac Sim simulation** with humanoid and environment
+✅ **Isaac ROS perception** (VSLAM, stereo, detection)
+✅ **Nav2 integration** for autonomous navigation
+✅ **Vision-based task** (navigate to detected object)
+✅ **Complete AI pipeline** from perception to action
+
+You've built a full AI-powered humanoid system!
+
+## Next Steps
+
+Continue to [Sim-to-Real Transfer](./sim-to-real-transfer.mdx) to deploy this to physical hardware.
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). Isaac Sim Application Tutorials. *NVIDIA Omniverse Documentation*.
+
+[^2]: Macenski, S., et al. (2020). The Marathon 2: A Navigation System. *IEEE/RSJ IROS*, 2718-2725.
+
+[^3]: Quigley, M., et al. (2009). ROS: an open-source Robot Operating System. *ICRA Workshop on Open Source Software*, 3(3.2), 5.

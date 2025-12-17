@@ -1,0 +1,488 @@
+# Isaac Platform Overview
+
+The NVIDIA Isaac platform is a comprehensive ecosystem for AI-powered robotics. This section provides an architectural overview, compares Isaac components, and explains how they integrate for complete robot systems.
+
+## Isaac Ecosystem Architecture
+
+The Isaac platform consists of four main pillars:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    NVIDIA Isaac Platform                     │
+├─────────────────┬──────────────┬──────────────┬─────────────┤
+│   Isaac Sim     │  Isaac ROS   │  Isaac Gym   │ Isaac SDK   │
+│  (Simulation)   │ (Perception) │     (RL)     │ (Autonomy)  │
+└─────────────────┴──────────────┴──────────────┴─────────────┘
+         │                │               │             │
+         └────────────────┴───────────────┴─────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    │  NVIDIA Omniverse │
+                    │   (Foundation)    │
+                    └───────────────────┘
+```
+
+### 1. Isaac Sim: Photorealistic Simulation
+
+**Purpose**: Create and test robots in physically accurate, visually realistic virtual worlds.
+
+**Key Features**:
+- RTX ray-tracing for photorealism
+- PhysX 5.0 physics engine
+- Synthetic data generation for AI training
+- Multi-robot simulation
+- Cloud deployment support
+
+**Use Cases**:
+- Training computer vision models
+- Testing navigation algorithms
+- Generating labeled datasets
+- Validating designs before hardware build
+
+### 2. Isaac ROS: Hardware-Accelerated Perception
+
+**Purpose**: Real-time AI perception on NVIDIA GPUs and Jetson platforms.
+
+**Key Features**:
+- GPU-accelerated ROS 2 packages
+- Visual SLAM (cuVSLAM)
+- Stereo depth estimation
+- DNN inference (TensorRT)
+- Zero-copy data pipelines
+
+**Use Cases**:
+- Real-time localization and mapping
+- Object detection and tracking
+- Depth perception for manipulation
+- Sensor fusion pipelines
+
+### 3. Isaac Gym: Massively Parallel RL
+
+**Purpose**: Train reinforcement learning policies at unprecedented scale.
+
+**Key Features**:
+- Thousands of parallel environments on single GPU
+- Direct GPU physics simulation
+- PyTorch integration
+- Asymmetric actor-critic support
+- Domain randomization built-in
+
+**Use Cases**:
+- Training bipedal locomotion
+- Learning dexterous manipulation
+- Multi-agent coordination
+- Sim-to-real policy transfer
+
+### 4. Isaac SDK (Legacy)
+
+**Purpose**: Classical autonomy stack (note: being superseded by Isaac ROS).
+
+**Key Features**:
+- Navigation algorithms
+- Behavior trees
+- Sensor drivers
+- GEMs (reusable components)
+
+**Status**: Maintenance mode; migrate to Isaac ROS for new projects.
+
+## Isaac Sim Deep Dive
+
+### Architecture
+
+Isaac Sim is built on **NVIDIA Omniverse**, a platform for 3D design collaboration:
+
+```
+Isaac Sim
+    ↓
+Omniverse Kit (application framework)
+    ↓
+USD (Universal Scene Description) - Open format
+    ↓
+PhysX 5.0 + RTX Rendering
+    ↓
+NVIDIA GPU (CUDA cores + RT cores + Tensor cores)
+```
+
+### USD: Universal Scene Description
+
+Isaac Sim uses **USD** (from Pixar) as its native format:
+
+**Benefits**:
+- Non-destructive editing
+- Layer-based composition
+- Industry standard (used by Disney, ILM, Apple)
+- Interoperability with Blender, Maya, Unreal
+
+**Example USD for robot**:
+```python
+from pxr import Usd, UsdGeom, UsdPhysics
+
+# Create stage
+stage = Usd.Stage.CreateNew("robot.usd")
+
+# Add robot mesh
+robot = UsdGeom.Mesh.Define(stage, "/World/Robot")
+robot.CreatePointsAttr([...])  # Vertex data
+
+# Add physics
+UsdPhysics.RigidBodyAPI.Apply(robot.GetPrim())
+mass_api = UsdPhysics.MassAPI.Apply(robot.GetPrim())
+mass_api.CreateMassAttr(50.0)  # 50 kg robot
+
+stage.Save()
+```
+
+### ROS 2 Integration
+
+Isaac Sim communicates with ROS 2 via **Omni.Isaac.ROS2Bridge**:
+
+```
+Isaac Sim                        ROS 2
+    │                              │
+    │  /cmd_vel (Twist)            │
+    │ ────────────────────────────>│
+    │                              │
+    │  /camera/image (Image)       │
+    │ ────────────────────────────>│
+    │                              │
+    │  /joint_states (JointState)  │
+    │ ────────────────────────────>│
+```
+
+Supported message types:
+- Standard ROS 2 messages (geometry_msgs, sensor_msgs, etc.)
+- Custom messages via interface definitions
+- TF transforms for coordinate frames
+- ROS 2 services and actions
+
+### Sensor Simulation
+
+Isaac Sim provides accurate sensor models:
+
+| Sensor Type | Features | Output |
+|-------------|----------|--------|
+| **RGB Camera** | Lens distortion, motion blur, exposure | sensor_msgs/Image |
+| **Depth Camera** | Stereo, structured light, ToF modes | sensor_msgs/Image (float) |
+| **LiDAR** | Rotating/solid-state, configurable beams | sensor_msgs/PointCloud2 |
+| **IMU** | Gyro, accelerometer, magnetometer noise | sensor_msgs/Imu |
+| **Contact Sensor** | Force/torque at contact points | Custom message |
+| **Semantic Segmentation** | Per-pixel class labels | sensor_msgs/Image (int) |
+
+**Unique to Isaac Sim**: Semantic and instance segmentation "cameras" provide perfect ground truth for training.
+
+## Isaac ROS Deep Dive
+
+### Architecture
+
+Isaac ROS packages are **GPU-accelerated** ROS 2 nodes:
+
+```
+ROS 2 Node (CPU)
+    ↓
+Isaac ROS GEM (GPU kernel)
+    ↓
+CUDA / TensorRT
+    ↓
+NVIDIA GPU
+```
+
+**Zero-copy pipeline**: Data stays on GPU throughout processing (no CPU↔GPU transfers).
+
+### Core Packages
+
+**Vision (isaac_ros_visual_slam)**:
+```bash
+# Stereo visual SLAM at 30 Hz
+ros2 launch isaac_ros_visual_slam isaac_ros_visual_slam.launch.py
+```
+- Input: Stereo camera pair
+- Output: Odometry, point cloud, pose graph
+- Performance: 30-60 FPS on Jetson Orin
+
+**Depth (isaac_ros_stereo_image_proc)**:
+```bash
+# GPU-accelerated stereo matching
+ros2 launch isaac_ros_stereo_image_proc stereo_image_pipeline.launch.py
+```
+- 10-50x faster than CPU stereo_image_proc
+- SGM (Semi-Global Matching) algorithm
+- Sub-pixel accuracy
+
+**Detection (isaac_ros_dnn_inference)**:
+```bash
+# Object detection with custom DNN
+ros2 launch isaac_ros_dnn_inference dnn_inference.launch.py \
+  model_file_path:=/models/detectnet.onnx
+```
+- TensorRT optimization
+- FP16/INT8 quantization
+- Multiple DNN backends (TensorRT, ONNX Runtime)
+
+### Deployment Targets
+
+Isaac ROS runs on:
+
+| Platform | GPU | Use Case | Performance |
+|----------|-----|----------|-------------|
+| **Desktop** | RTX 3080+ | Development, training | Excellent |
+| **Jetson AGX Orin** | 2048 CUDA cores | Production robot | Very Good |
+| **Jetson Orin NX** | 1024 CUDA cores | Compact robot | Good |
+| **Jetson Orin Nano** | 1024 CUDA cores | Budget robot | Moderate |
+
+**Power efficiency**: Jetson Orin achieves 275 TOPS/W (AI operations per watt), enabling real-time perception on battery power.
+
+## Isaac Gym Deep Dive
+
+### Massively Parallel Simulation
+
+Traditional RL training:
+
+```
+CPU Physics    →  GPU (policy inference)  →  CPU (collect data)
+    ↓                      ↓                         ↓
+  Slow              Fast but idle            Bottleneck
+```
+
+Isaac Gym approach:
+
+```
+GPU Physics + GPU Policy + GPU Data = No CPU Bottleneck
+              ↓
+      10,000 environments in parallel
+              ↓
+      Training in minutes, not days
+```
+
+### Architecture
+
+```python
+import isaacgym
+
+# Create 4096 parallel humanoid environments
+envs = gym.create_sim(num_envs=4096, device="cuda:0")
+
+# Step all environments simultaneously (GPU)
+obs, rewards, dones, info = envs.step(actions)  # Single GPU call
+
+# Train policy (GPU)
+policy.update(obs, rewards)  # No CPU transfer
+```
+
+**Key insight**: Physics simulation runs entirely on GPU using custom CUDA kernels, eliminating CPU-to-GPU data transfer.
+
+### RL Frameworks Integration
+
+Isaac Gym works with popular RL libraries:
+
+**RL Games** (built-in):
+```python
+from rl_games.torch_runner import Runner
+
+runner = Runner()
+runner.load_config({
+    'params': {
+        'algo': 'a2c',
+        'model': 'continuous_a2c_logstd',
+        'network': 'actor_critic',
+        'num_actors': 4096,  # Parallel envs
+    }
+})
+runner.run()
+```
+
+**Stable-Baselines3** (via wrapper):
+```python
+from stable_baselines3 import PPO
+from isaacgym_sb3 import IsaacGymVecEnv
+
+env = IsaacGymVecEnv("Humanoid", num_envs=2048)
+model = PPO("MlpPolicy", env, verbose=1)
+model.learn(total_timesteps=10_000_000)
+```
+
+### Training Performance
+
+**Humanoid walking benchmark**:
+- Traditional (1 env, CPU physics): ~10 hours
+- Isaac Gym (4096 envs, GPU physics): ~10 minutes
+- **Speedup: 60x**
+
+## Omniverse Integration
+
+### Collaboration Features
+
+Multiple users can work on the same robot simultaneously:
+
+**Engineer A** (mechanical design in CAD):
+- Edits robot chassis in SolidWorks
+- Exports USD, commits to Nucleus server
+
+**Engineer B** (simulation in Isaac Sim):
+- Sees live updates to chassis
+- Tests updated design immediately
+
+**Engineer C** (visualization in UE5):
+- Imports same USD
+- Creates marketing visualization
+
+**Version control**: Omniverse Nucleus provides Git-like versioning for 3D assets.
+
+### Nucleus Server
+
+**Nucleus** is Omniverse's collaboration server:
+
+```
+Nucleus Server (localhost or cloud)
+    │
+    ├─ /Projects/Humanoid/robot_v1.usd
+    ├─ /Assets/Environments/warehouse.usd
+    └─ /Models/Sensors/camera_d435.usd
+         ↑
+    Shared across team
+```
+
+Access via `omniverse://localhost/Projects/...` URLs.
+
+## Hardware Requirements
+
+### Isaac Sim Requirements
+
+**Minimum**:
+- GPU: NVIDIA RTX 2070 (8GB VRAM)
+- CPU: Intel i7 / AMD Ryzen 7
+- RAM: 16GB
+- Storage: 50GB SSD
+- OS: Ubuntu 22.04 or Windows 10/11
+
+**Recommended**:
+- GPU: NVIDIA RTX 3080 or higher (10GB+ VRAM)
+- CPU: Intel i9 / AMD Ryzen 9
+- RAM: 32GB
+- Storage: 100GB NVMe SSD
+- OS: Ubuntu 22.04 LTS
+
+**Cloud options**:
+- AWS EC2 G5 instances (NVIDIA A10G GPU)
+- Google Cloud N1 with T4/V100
+- Azure NC-series with A100
+
+### Isaac ROS Requirements
+
+**Development**:
+- Same as Isaac Sim (desktop GPU)
+
+**Deployment**:
+- Jetson AGX Orin (32GB recommended)
+- Jetson Orin NX (16GB)
+- Jetson Orin Nano (8GB for basic perception)
+
+### Isaac Gym Requirements
+
+**Training**:
+- GPU: NVIDIA RTX 3090 or higher (24GB VRAM recommended)
+- Can run thousands of parallel environments
+
+**Inference** (deploying trained policy):
+- Runs on any NVIDIA GPU, including Jetson
+
+## Licensing
+
+**Isaac Sim**:
+- Free for development and research
+- Commercial use requires Omniverse Enterprise license
+- Available via NVIDIA NGC (container registry)
+
+**Isaac ROS**:
+- Apache 2.0 open source
+- Free for all use cases
+
+**Isaac Gym**:
+- Free for research and commercial use
+- Download requires NVIDIA Developer account
+
+## Isaac vs. Other Simulators
+
+### Isaac Sim vs. Gazebo
+
+| Feature | Isaac Sim | Gazebo |
+|---------|-----------|--------|
+| **Rendering** | RTX ray tracing | Basic OpenGL |
+| **Physics** | PhysX 5.0 (GPU) | ODE/Bullet/DART (CPU) |
+| **AI Integration** | Native | Manual |
+| **Sensor Realism** | Excellent | Good |
+| **Performance** | GPU-accelerated | CPU-limited |
+| **Hardware Req** | NVIDIA GPU required | Runs on any PC |
+| **Learning Curve** | Steeper | Gentler |
+
+**Use Isaac Sim when**: Training vision models, need photorealism, leveraging GPU compute.
+
+**Use Gazebo when**: Quick prototyping, no GPU available, prefer open-source ecosystem.
+
+### Isaac Gym vs. MuJoCo/PyBullet
+
+| Feature | Isaac Gym | MuJoCo | PyBullet |
+|---------|-----------|--------|----------|
+| **Parallel Envs** | 10,000+ | 10-100 | 10-100 |
+| **Physics Speed** | Very Fast (GPU) | Fast (CPU) | Medium (CPU) |
+| **Contact Handling** | Good | Excellent | Good |
+| **RL Integration** | Built-in | Manual | Manual |
+| **Visualization** | Basic | Basic | Basic |
+
+**Use Isaac Gym when**: Training locomotion/manipulation policies, have NVIDIA GPU.
+
+**Use MuJoCo when**: Need highest accuracy contacts, CPU-only environment.
+
+## Integration Example
+
+Complete humanoid robot stack using Isaac:
+
+```
+┌──────────────────────────────────────────────┐
+│              Development Phase               │
+├──────────────────────────────────────────────┤
+│  Isaac Sim: Design and test robot           │
+│      ↓                                       │
+│  Isaac Gym: Train walking policy via RL     │
+│      ↓                                       │
+│  Isaac Sim: Validate trained policy         │
+└──────────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────────┐
+│             Deployment Phase                 │
+├──────────────────────────────────────────────┤
+│  Jetson AGX Orin (on robot)                 │
+│      │                                       │
+│      ├─ Isaac ROS: Visual SLAM              │
+│      ├─ Isaac ROS: Object detection         │
+│      ├─ Nav2: Path planning                 │
+│      └─ Trained policy: Locomotion control  │
+└──────────────────────────────────────────────┘
+```
+
+## Summary
+
+The NVIDIA Isaac platform provides:
+
+✅ **Isaac Sim**: Photorealistic simulation for visual AI development
+✅ **Isaac ROS**: Real-time GPU-accelerated perception
+✅ **Isaac Gym**: Massively parallel RL training
+✅ **Omniverse**: Collaboration and asset management
+✅ **Hardware**: Jetson for edge deployment
+
+Together, these tools enable **AI-first robotics**—systems where learning and perception are first-class citizens, not afterthoughts.
+
+## Next Steps
+
+Ready to get hands-on? Continue to [Photorealistic Simulation with Isaac Sim](./isaac-sim-photorealistic.mdx) to install Isaac Sim and create your first virtual robot!
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). NVIDIA Isaac Platform Documentation. *NVIDIA Developer*. https://developer.nvidia.com/isaac
+
+[^2]: Liang, J., et al. (2023). Code as Policies: Language Model Programs for Embodied Control. *Proceedings of the IEEE International Conference on Robotics and Automation (ICRA)*, 9493-9500.
+
+[^3]: Makoviychuk, V., et al. (2021). Isaac Gym: High Performance GPU-Based Physics Simulation For Robot Learning. *arXiv preprint arXiv:2108.10470*.
+
+[^4]: NVIDIA Omniverse. (2024). Universal Scene Description for Robotics. *NVIDIA Technical Blog*. https://developer.nvidia.com/blog/

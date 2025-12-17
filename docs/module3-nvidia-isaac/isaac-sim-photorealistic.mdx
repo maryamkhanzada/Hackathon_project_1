@@ -1,0 +1,647 @@
+# Photorealistic Simulation with Isaac Sim
+
+Isaac Sim brings film-quality rendering to robot simulation. This section covers installation, environment creation, robot import, and synthetic data generation for AI training.
+
+## Why Photorealistic Simulation?
+
+Traditional robot simulators prioritize **physics accuracy** over visual realism. Isaac Sim provides **both**:
+
+**Benefits of photorealism**:
+- Train vision models on realistic synthetic data
+- Validate perception algorithms before hardware deployment
+- Create demos and visualizations for stakeholders
+- Test in visually complex environments (reflections, shadows, fog)
+
+**Ray tracing** in Isaac Sim simulates actual light physics, producing images indistinguishable from photographs.
+
+## Installation
+
+### Method 1: Omniverse Launcher (Recommended)
+
+**Step 1: Install Omniverse Launcher**
+
+```bash
+# Download from NVIDIA
+# Visit: https://www.nvidia.com/en-us/omniverse/download/
+
+# On Ubuntu 22.04:
+chmod +x omniverse-launcher-linux.AppImage
+./omniverse-launcher-linux.AppImage
+```
+
+**Step 2: Install Isaac Sim via Launcher**
+
+1. Open Omniverse Launcher
+2. Go to **Exchange** tab
+3. Search for **Isaac Sim**
+4. Click **Install** (downloads ~20GB)
+5. Wait for installation to complete (10-30 minutes)
+
+**Step 3: Launch Isaac Sim**
+
+1. Go to **Library** tab in Launcher
+2. Find **Isaac Sim**
+3. Click **Launch**
+
+First launch takes 2-3 minutes to compile shaders.
+
+### Method 2: Docker Container
+
+For server/cloud deployment:
+
+```bash
+# Pull Isaac Sim container from NGC
+docker pull nvcr.io/nvidia/isaac-sim:2023.1.1
+
+# Run with GPU support
+docker run --name isaac-sim --entrypoint bash -it \
+  --gpus all \
+  -e "ACCEPT_EULA=Y" \
+  --rm \
+  --network=host \
+  nvcr.io/nvidia/isaac-sim:2023.1.1
+
+# Inside container, launch Isaac Sim
+./runheadless.native.sh
+```
+
+**Headless mode**: Streams rendering via WebRTC for remote access.
+
+### Method 3: Workstation (Advanced)
+
+Download standalone installer for custom Python environments:
+
+```bash
+# Download from NGC
+wget https://developer.nvidia.com/isaac-sim-2023-1-1
+
+# Extract
+tar -xvf isaac-sim-2023.1.1.tar.gz
+
+# Set environment
+export ISAAC_PATH=/path/to/isaac-sim
+```
+
+### Verify Installation
+
+```bash
+# Check Isaac Sim Python API
+${ISAAC_PATH}/python.sh -c "from omni.isaac.kit import SimulationApp; print('Success!')"
+```
+
+## First Scene: Empty World
+
+### Creating a Stage
+
+In Isaac Sim GUI:
+
+1. **File** → **New**
+2. **Create** → **Physics** → **Ground Plane**
+3. **Create** → **Light** → **Dome Light**
+
+Alternatively, via Python API:
+
+```python
+from omni.isaac.kit import SimulationApp
+
+# Launch Isaac Sim
+simulation_app = SimulationApp({"headless": False})
+
+from omni.isaac.core import World
+from omni.isaac.core.objects import DynamicCuboid
+
+# Create world
+world = World()
+world.scene.add_default_ground_plane()
+
+# Add cube
+cube = DynamicCuboid(
+    prim_path="/World/Cube",
+    name="red_cube",
+    position=[0, 0, 0.5],
+    scale=[0.1, 0.1, 0.1],
+    color=[1.0, 0.0, 0.0]
+)
+
+# Run simulation
+world.reset()
+for i in range(1000):
+    world.step(render=True)
+
+simulation_app.close()
+```
+
+### RTX Ray Tracing
+
+Enable realistic rendering:
+
+1. **Window** → **Render Settings**
+2. Set **Renderer**: `PathTracing` (highest quality) or `RayTracedLighting` (faster)
+3. **Samples per Pixel**: 64-256 (higher = less noise, slower)
+4. **Max Bounces**: 4-8 (light reflection depth)
+
+**Performance tip**: Use `RayTracedLighting` during development, `PathTracing` for final renders.
+
+## Importing Robot Models
+
+### From URDF
+
+Isaac Sim natively imports URDF files:
+
+**Via GUI**:
+1. **Isaac Utils** → **URDF Importer**
+2. Select URDF file
+3. Configure:
+   - **Import Meshes**: ✅
+   - **Import Inertia Properties**: ✅
+   - **Create Physics Scene**: ✅
+4. Click **Import**
+
+**Via Python API**:
+
+```python
+from omni.isaac.core.utils.stage import add_reference_to_stage
+from omni.importer.urdf import _urdf
+
+# Import URDF
+urdf_path = "/path/to/humanoid.urdf"
+imported_robot = _urdf.acquire_urdf_interface()
+
+# Configuration
+import_config = _urdf.ImportConfig()
+import_config.merge_fixed_joints = False
+import_config.convex_decomp = False  # Use original collision meshes
+import_config.import_inertia_tensor = True
+import_config.fix_base = False  # Floating base for humanoid
+
+# Import
+success, robot_prim_path = imported_robot.parse_urdf(
+    urdf_path,
+    "/World/Humanoid",
+    import_config
+)
+
+print(f"Robot imported at: {robot_prim_path}")
+```
+
+### From USD (Native Format)
+
+Load pre-converted USD files directly:
+
+```python
+from omni.isaac.core.utils.stage import add_reference_to_stage
+
+# Add robot USD
+add_reference_to_stage(
+    usd_path="/Isaac/Robots/Franka/franka.usd",
+    prim_path="/World/Franka"
+)
+```
+
+**NVIDIA provides pre-made USD robots**:
+- Franka Panda arm
+- UR10 manipulator
+- Fetch mobile manipulator
+- Jetbot
+- Carter warehouse robot
+
+Located in: `${ISAAC_PATH}/assets/Isaac/Robots/`
+
+### Mesh Optimization
+
+For complex CAD models, simplify collision geometry:
+
+**Convex decomposition** (automatic):
+```python
+import_config.convex_decomp = True  # V-HACD algorithm
+import_config.convex_decomp_params = {
+    "max_convex_hulls": 32,
+    "resolution": 100000
+}
+```
+
+**Manual simplification**:
+1. Export high-poly visual mesh for rendering
+2. Create low-poly collision mesh in Blender/MeshLab
+3. Reference both in URDF:
+```xml
+<link name="torso">
+  <visual>
+    <geometry>
+      <mesh filename="torso_visual_highpoly.obj"/>
+    </geometry>
+  </visual>
+  <collision>
+    <geometry>
+      <mesh filename="torso_collision_lowpoly.obj"/>
+    </geometry>
+  </collision>
+</link>
+```
+
+## Creating Realistic Environments
+
+### Materials and Textures
+
+Apply physically-based materials (PBR):
+
+**Via GUI**:
+1. Select object in stage
+2. **Window** → **Material Properties**
+3. **Create** → **OmniPBR**
+4. Adjust:
+   - **Diffuse Color**: Base color map
+   - **Roughness**: Surface smoothness (0=mirror, 1=matte)
+   - **Metallic**: Metal vs. non-metal (0 or 1)
+   - **Normal Map**: Surface detail without geometry
+
+**Via Python**:
+
+```python
+import omni.usd
+from pxr import Usd, UsdShade, Sdf
+
+stage = omni.usd.get_context().get_stage()
+
+# Create material
+material_path = "/World/Materials/Wood"
+material = UsdShade.Material.Define(stage, material_path)
+
+# Create shader
+shader = UsdShade.Shader.Define(stage, f"{material_path}/Shader")
+shader.CreateIdAttr("UsdPreviewSurface")
+
+# Set properties
+shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set((0.6, 0.4, 0.2))
+shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.8)
+shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+
+# Bind material to object
+object_prim = stage.GetPrimAtPath("/World/Table")
+UsdShade.MaterialBindingAPI(object_prim).Bind(material)
+```
+
+### Lighting
+
+**Types of lights**:
+
+**Dome Light** (environment):
+```python
+from pxr import UsdLux
+
+dome_light = UsdLux.DomeLight.Define(stage, "/World/DomeLight")
+dome_light.CreateIntensityAttr(1000)
+dome_light.CreateTextureFileAttr("./hdri/warehouse.hdr")  # HDRI map
+```
+
+**Distant Light** (sun):
+```python
+sun = UsdLux.DistantLight.Define(stage, "/World/Sun")
+sun.CreateIntensityAttr(3000)
+sun.CreateAngleAttr(0.53)  # Angular size (degrees)
+```
+
+**Sphere Light** (point source):
+```python
+light = UsdLux.SphereLight.Define(stage, "/World/PointLight")
+light.CreateIntensityAttr(10000)
+light.CreateRadiusAttr(0.1)
+```
+
+**Rectangle Light** (area light):
+```python
+area = UsdLux.RectLight.Define(stage, "/World/CeilingLight")
+area.CreateIntensityAttr(5000)
+area.CreateWidthAttr(2.0)
+area.CreateHeightAttr(1.0)
+```
+
+### Pre-Built Environments
+
+NVIDIA provides environments in Isaac Sim:
+
+```python
+from omni.isaac.core.utils.stage import add_reference_to_stage
+
+# Warehouse
+add_reference_to_stage(
+    "/Isaac/Environments/Simple_Warehouse/warehouse.usd",
+    "/World/Warehouse"
+)
+
+# Office
+add_reference_to_stage(
+    "/Isaac/Environments/Simple_Room/simple_room.usd",
+    "/World/Office"
+)
+```
+
+## Sensor Simulation
+
+### RGB Camera
+
+```python
+from omni.isaac.core.utils.prims import create_prim
+from omni.isaac.sensor import Camera
+
+# Create camera prim
+camera_path = "/World/Camera"
+create_prim(
+    camera_path,
+    "Camera",
+    position=[2.0, 2.0, 1.5],
+    orientation=[0.707, 0, 0, 0.707]  # Look at origin
+)
+
+# Configure camera
+camera = Camera(
+    prim_path=camera_path,
+    frequency=30,  # 30 FPS
+    resolution=(1920, 1080)
+)
+
+# Get image
+camera.initialize()
+rgb_data = camera.get_rgba()  # Returns numpy array (H, W, 4)
+```
+
+### Depth Camera
+
+```python
+# Enable depth output
+camera.add_distance_to_image_plane_to_frame()
+
+# Get depth
+depth_data = camera.get_distance_to_image_plane()  # (H, W) meters
+```
+
+### Semantic Segmentation
+
+```python
+# Enable segmentation
+camera.add_instance_segmentation_to_frame()
+camera.add_semantic_segmentation_to_frame()
+
+# Get masks
+instance_seg = camera.get_instance_segmentation()  # Per-object IDs
+semantic_seg = camera.get_semantic_segmentation()  # Per-class labels
+```
+
+**Labeling objects**:
+
+```python
+# Assign semantic label
+import omni.isaac.core.utils.semantics as semantics_utils
+
+semantics_utils.add_update_semantics(
+    prim=stage.GetPrimAtPath("/World/Table"),
+    semantic_label="table",
+    type_label="class"
+)
+```
+
+### LiDAR
+
+```python
+from omni.isaac.range_sensor import _range_sensor
+
+# Create rotating LiDAR
+lidar_config = _range_sensor.SensorConfig()
+lidar_config.min_range = 0.4  # meters
+lidar_config.max_range = 100.0
+lidar_config.horizontal_fov = 360.0  # degrees
+lidar_config.vertical_fov = 30.0
+lidar_config.horizontal_resolution = 0.4  # degrees per ray
+lidar_config.vertical_resolution = 1.0
+lidar_config.rotation_rate = 20.0  # Hz
+
+lidar = _range_sensor.acquire_lidar_sensor_interface()
+lidar_path = "/World/Lidar"
+lidar.create_lidar(lidar_path, lidar_config)
+
+# Get point cloud
+point_cloud = lidar.get_point_cloud_data(lidar_path)  # (N, 3) XYZ points
+```
+
+## Synthetic Data Generation
+
+### Replicator API
+
+**Replicator** automates dataset creation:
+
+```python
+import omni.replicator.core as rep
+
+# Define randomization
+with rep.new_layer():
+    # Random camera poses
+    camera = rep.create.camera(position=rep.distribution.uniform((-5, -5, 1), (5, 5, 3)))
+
+    # Random object positions
+    cube = rep.create.cube(
+        position=rep.distribution.uniform((-1, -1, 0), (1, 1, 2)),
+        scale=rep.distribution.uniform(0.1, 0.5)
+    )
+
+    # Random lighting
+    light = rep.create.light(
+        rotation=rep.distribution.uniform((0, 0, 0), (360, 360, 360)),
+        intensity=rep.distribution.uniform(1000, 5000)
+    )
+
+    # Render settings
+    with camera:
+        rep.modify.pose(
+            look_at=cube
+        )
+
+    # Annotators (ground truth labels)
+    rp = rep.create.render_product(camera, (512, 512))
+    rgb = rep.AnnotatorRegistry.get_annotator("rgb")
+    bbox_2d = rep.AnnotatorRegistry.get_annotator("bounding_box_2d")
+    semantic_seg = rep.AnnotatorRegistry.get_annotator("semantic_segmentation")
+
+    rgb.attach([rp])
+    bbox_2d.attach([rp])
+    semantic_seg.attach([rp])
+
+    # Generate dataset
+    rep.orchestrator.run_until_complete(num_frames=1000)
+
+# Data automatically saved to output directory
+```
+
+### Domain Randomization
+
+Vary scene properties for robust policies:
+
+```python
+import omni.replicator.core as rep
+
+# Randomize materials
+with rep.trigger.on_frame():
+    rep.modify.attribute(
+        "/World/Floor",
+        "diffuseColor",
+        rep.distribution.uniform((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))
+    )
+
+    rep.modify.attribute(
+        "/World/Floor",
+        "roughness",
+        rep.distribution.uniform(0.3, 1.0)
+    )
+
+# Randomize lighting
+with rep.trigger.on_frame():
+    rep.modify.attribute(
+        "/World/DomeLight",
+        "intensity",
+        rep.distribution.uniform(500, 2000)
+    )
+```
+
+## ROS 2 Integration
+
+### Enable ROS 2 Bridge
+
+**Via GUI**:
+1. **Isaac Utils** → **ROS2 Bridge**
+2. Click **Enable**
+
+**Via Python**:
+
+```python
+from omni.isaac.core.utils.extensions import enable_extension
+
+enable_extension("omni.isaac.ros2_bridge")
+```
+
+### Publishing Camera Images
+
+```python
+from omni.isaac.sensor import Camera
+import omni.graph.core as og
+
+# Create camera
+camera = Camera(
+    prim_path="/World/Camera",
+    frequency=30,
+    resolution=(640, 480)
+)
+
+# Create ROS2 publisher graph
+keys = og.Controller.Keys
+(graph, nodes, _, _) = og.Controller.edit(
+    {"graph_path": "/ActionGraph", "evaluator_name": "execution"},
+    {
+        keys.CREATE_NODES: [
+            ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+            ("CameraHelper", "omni.isaac.ros2_bridge.ROS2CameraHelper"),
+        ],
+        keys.SET_VALUES: [
+            ("CameraHelper.inputs:cameraPrim", camera.prim_path),
+            ("CameraHelper.inputs:topicName", "/robot/camera/image_raw"),
+            ("CameraHelper.inputs:frameId", "camera_link"),
+        ],
+        keys.CONNECT: [
+            ("OnPlaybackTick.outputs:tick", "CameraHelper.inputs:execIn"),
+        ],
+    },
+)
+
+# Now camera publishes to /robot/camera/image_raw
+```
+
+### Subscribing to Joint Commands
+
+```python
+# Subscribe to /joint_commands topic and apply to robot joints
+(graph, nodes, _, _) = og.Controller.edit(
+    {"graph_path": "/ActionGraph"},
+    {
+        keys.CREATE_NODES: [
+            ("SubscribeJointState", "omni.isaac.ros2_bridge.ROS2SubscribeJointState"),
+            ("ArticulationController", "omni.isaac.core_nodes.IsaacArticulationController"),
+        ],
+        keys.SET_VALUES: [
+            ("SubscribeJointState.inputs:topicName", "/joint_commands"),
+            ("ArticulationController.inputs:robotPath", "/World/Humanoid"),
+        ],
+        keys.CONNECT: [
+            ("SubscribeJointState.outputs:jointNames", "ArticulationController.inputs:jointNames"),
+            ("SubscribeJointState.outputs:positionCommand", "ArticulationController.inputs:positionCommand"),
+        ],
+    },
+)
+```
+
+## Performance Optimization
+
+### Reduce Rendering Load
+
+```python
+# Lower resolution during sim
+camera.set_resolution((640, 480))  # Instead of (1920, 1080)
+
+# Reduce sample count
+# In Render Settings: Samples per Pixel = 1 (real-time)
+```
+
+### Use GPU-Accelerated Physics
+
+Isaac Sim uses PhysX 5.0 on GPU by default. Verify:
+
+```python
+from pxr import PhysxSchema
+
+# Check physics scene settings
+physx_scene_api = PhysxSchema.PhysxSceneAPI.Get(stage, "/physicsScene")
+physx_scene_api.GetGpuMaxRigidContactCountAttr().Get()  # Should be > 0
+
+# GPU physics active if this returns large number
+```
+
+### Headless Mode for Training
+
+No GUI rendering:
+
+```bash
+# Launch headless
+${ISAAC_PATH}/python.sh headless_training.py
+```
+
+```python
+# In script
+simulation_app = SimulationApp({"headless": True})  # No rendering window
+```
+
+## Summary
+
+Isaac Sim provides:
+
+✅ **Photorealistic rendering** with RTX ray tracing
+✅ **URDF/USD import** for robot models
+✅ **PBR materials** for realistic surfaces
+✅ **Advanced sensors** (RGB, depth, LiDAR, segmentation)
+✅ **Synthetic data generation** via Replicator
+✅ **ROS 2 integration** for perception pipelines
+✅ **GPU acceleration** for physics and rendering
+
+Next, learn how to deploy perception on real hardware with Isaac ROS!
+
+## Next Steps
+
+Continue to [Isaac ROS for Perception](./isaac-ros-perception.mdx) to implement GPU-accelerated vision on Jetson or desktop.
+
+---
+
+## References
+
+[^1]: NVIDIA Corporation. (2024). Isaac Sim Documentation. *NVIDIA Omniverse*. https://docs.omniverse.nvidia.com/isaacsim/latest/
+
+[^2]: Kerbl, B., et al. (2020). The Replicator: Synthetic Data Generation for Training and Validation. *NVIDIA Technical Report*.
+
+[^3]: Pixar Animation Studios. (2023). Universal Scene Description (USD). https://openusd.org/
+
+[^4]: Mildenhall, B., et al. (2020). NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis. *ECCV 2020*.

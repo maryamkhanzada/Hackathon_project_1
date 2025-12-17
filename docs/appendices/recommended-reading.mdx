@@ -1,0 +1,574 @@
+# Appendix C: Recommended Reading & Resources
+
+Curated collection of books, papers, courses, and tools for mastering Physical AI and humanoid robotics.
+
+## Books
+
+### Robotics Fundamentals
+
+**Modern Robotics: Mechanics, Planning, and Control**
+Lynch, K. M., & Park, F. C. (2017). *Modern Robotics: Mechanics, Planning, and Control*. Cambridge University Press.
+
+- Comprehensive coverage of robot kinematics, dynamics, and control
+- Freely available: http://hades.mech.northwestern.edu/index.php/Modern_Robotics
+- Essential for understanding URDF and robot modeling (Module 1)
+
+**Probabilistic Robotics**
+Thrun, S., Burgard, W., & Fox, D. (2005). *Probabilistic Robotics*. MIT Press.
+
+- Foundation for SLAM, localization, and probabilistic methods
+- Direct relevance to Nav2 and AMCL (Module 3)
+- Classic text used in top robotics programs worldwide
+
+**Introduction to Autonomous Mobile Robots**
+Siegwart, R., Nourbakhsh, I. R., & Scaramuzza, D. (2011). *Introduction to Autonomous Mobile Robots* (2nd ed.). MIT Press.
+
+- Covers locomotion, perception, and navigation
+- Excellent resource for Nav2 concepts
+- Includes sensor fusion and obstacle avoidance
+
+**Robotics, Vision and Control: Fundamental Algorithms in MATLAB**
+Corke, P. (2017). *Robotics, Vision and Control: Fundamental Algorithms in MATLAB* (2nd ed.). Springer.
+
+- Practical algorithms with code examples
+- Companion software toolbox available
+- Bridges theory and implementation
+
+### ROS 2 and Middleware
+
+**A Concise Introduction to Robot Programming with ROS2**
+Cañas, J. M., et al. (2023). *A Concise Introduction to Robot Programming with ROS2*. Online open-source book.
+
+- Modern ROS 2-specific content
+- Available: https://jmcasas.github.io/ros2_tutorials/
+- Covers Humble distribution used in this book
+
+**Programming Robots with ROS**
+Quigley, M., Gerkey, B., & Smart, W. D. (2015). *Programming Robots with ROS*. O'Reilly Media.
+
+- While ROS 1-focused, principles transfer to ROS 2
+- Excellent for understanding ROS philosophy
+
+### Artificial Intelligence and Machine Learning
+
+**Reinforcement Learning: An Introduction**
+Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
+
+- Foundation for RL concepts in Module 3 (Isaac Gym)
+- Freely available: http://incompleteideas.net/book/the-book.html
+- Covers PPO and policy optimization
+
+**Deep Learning**
+Goodfellow, I., Bengio, Y., & Courville, A. (2016). *Deep Learning*. MIT Press.
+
+- Comprehensive neural networks and deep learning
+- Freely available: https://www.deeplearningbook.org/
+- Essential for understanding perception models
+
+**Artificial Intelligence: A Modern Approach**
+Russell, S., & Norvig, P. (2020). *Artificial Intelligence: A Modern Approach* (4th ed.). Pearson.
+
+- Comprehensive AI textbook
+- Covers planning, reasoning, and decision-making
+- Relevant to LLM-based task planning (Module 4)
+
+### Computer Vision
+
+**Computer Vision: Algorithms and Applications**
+Szeliski, R. (2022). *Computer Vision: Algorithms and Applications* (2nd ed.). Springer.
+
+- Freely available: https://szeliski.org/Book/
+- Covers object detection, segmentation, 3D vision
+- Relevant to Isaac ROS perception pipeline
+
+**Multiple View Geometry in Computer Vision**
+Hartley, R., & Zisserman, A. (2004). *Multiple View Geometry in Computer Vision* (2nd ed.). Cambridge University Press.
+
+- Essential for stereo vision and SLAM
+- Mathematical foundations for visual odometry
+
+## Academic Papers
+
+### Foundation Papers (Embodied Intelligence)
+
+Brooks, R. A. (1991). Intelligence without representation. *Artificial Intelligence*, 47(1-3), 139-159.
+https://doi.org/10.1016/0004-3702(91)90053-M
+
+- Seminal paper on behavior-based robotics
+- Foundation for embodied cognition concepts
+
+Brooks, R. A. (1986). A robust layered control system for a mobile robot. *IEEE Journal on Robotics and Automation*, 2(1), 14-23.
+https://doi.org/10.1109/JRA.1986.1087032
+
+- Subsumption architecture
+- Influenced modern hierarchical control systems
+
+### Vision-Language-Action Models
+
+Brohan, A., Brown, N., Carbajal, J., et al. (2022). RT-1: Robotics Transformer for Real-World Control at Scale. *arXiv preprint arXiv:2212.06817*.
+https://arxiv.org/abs/2212.06817
+
+- Foundation for VLA concepts in Module 4
+- End-to-end visuomotor control with transformers
+
+Driess, D., Xia, F., Sajjadi, M. S., et al. (2023). PaLM-E: An Embodied Multimodal Language Model. *arXiv preprint arXiv:2303.03378*.
+https://arxiv.org/abs/2303.03378
+
+- State-of-the-art language-robotics integration
+- 562B parameter embodied model
+
+Ahn, M., Brohan, A., Brown, N., et al. (2022). Do As I Can, Not As I Say: Grounding Language in Robotic Affordances. *arXiv preprint arXiv:2204.01691*.
+https://arxiv.org/abs/2204.01691
+
+- SayCan: LLMs + value functions for task planning
+- Direct relevance to Module 4 task planner
+
+Liang, J., Huang, W., Xia, F., et al. (2022). Code as Policies: Language Model Programs for Embodied Control. *arXiv preprint arXiv:2209.07753*.
+https://arxiv.org/abs/2209.07753
+
+- LLMs generating Python code for robot control
+- Alternative to learned VLA models
+
+Brohan, A., Chebotar, Y., Finn, C., et al. (2023). RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control. *arXiv preprint arXiv:2307.15818*.
+https://arxiv.org/abs/2307.15818
+
+- Web-scale vision-language model fine-tuned for robotics
+- 55B actions from internet + robot data
+
+### Simulation and Sim-to-Real Transfer
+
+Tobin, J., Fong, R., Ray, A., et al. (2017). Domain randomization for transferring deep neural networks from simulation to the real world. *2017 IEEE/RSJ IROS*, 23-30.
+https://doi.org/10.1109/IROS.2017.8202133
+
+- Foundation for sim-to-real techniques in Module 3
+- Domain randomization methodology
+
+Peng, X. B., Andrychowicz, M., Zaremba, W., & Abbeel, P. (2018). Sim-to-real transfer of robotic control with dynamics randomization. *2018 IEEE ICRA*, 3803-3810.
+https://doi.org/10.1109/ICRA.2018.8460528
+
+- Physics randomization for robust policies
+- Applied in Isaac Gym training
+
+Makoviychuk, V., Wawrzyniak, L., Guo, Y., et al. (2021). Isaac Gym: High Performance GPU-Based Physics Simulation For Robot Learning. *arXiv preprint arXiv:2108.10470*.
+https://arxiv.org/abs/2108.10470
+
+- NVIDIA Isaac Gym technical paper
+- Massively parallel RL training (Module 3)
+
+### Humanoid Robotics
+
+Kajita, S., Hirukawa, H., Harada, K., et al. (2014). *Introduction to Humanoid Robotics*. Springer.
+
+- Comprehensive humanoid design and control
+- Walking pattern generation and balance
+
+Kuindersma, S., Deits, R., Fallon, M., et al. (2016). Optimization-based locomotion planning, estimation, and control design for the atlas humanoid robot. *Autonomous Robots*, 40(3), 429-455.
+https://doi.org/10.1007/s10514-015-9479-3
+
+- Boston Dynamics Atlas technical details
+- Real-world humanoid control challenges
+
+### Natural Language Processing for Robotics
+
+Tellex, S., Kollar, T., Dickerson, S., et al. (2011). Understanding Natural Language Commands for Robotic Navigation and Mobile Manipulation. *AAAI*, 1507-1514.
+
+- Grounding language to robot actions
+- Foundation for voice control (Module 4)
+
+Radford, A., Kim, J. W., Xu, T., et al. (2023). Robust Speech Recognition via Large-Scale Weak Supervision. *ICML*.
+https://arxiv.org/abs/2212.04356
+
+- OpenAI Whisper technical paper
+- Used in Module 4 voice control
+
+### Manipulation and Grasping
+
+Mahler, J., Liang, J., Niyaz, S., et al. (2017). Dex-Net 2.0: Deep Learning to Plan Robust Grasps with Synthetic Point Clouds and Analytic Grasp Metrics. *RSS*.
+https://arxiv.org/abs/1703.09312
+
+- Data-driven grasp planning
+- Relevant to MoveIt2 integration
+
+## Online Courses
+
+### Robotics Courses
+
+**Robotics Specialization** - University of Pennsylvania (Coursera)
+https://www.coursera.org/specializations/robotics
+
+- 6-course series covering kinematics, mobility, perception, estimation
+- Capstone project with real robot
+
+**Self-Driving Cars Specialization** - University of Toronto (Coursera)
+https://www.coursera.org/specializations/self-driving-cars
+
+- Perception, localization, and planning
+- Directly applicable to Nav2 concepts
+
+**Modern Robotics** - Northwestern University (Coursera)
+https://www.coursera.org/specializations/modernrobotics
+
+- Based on Lynch & Park textbook
+- Excellent for Module 1 foundations
+
+### AI and Machine Learning Courses
+
+**Deep Learning Specialization** - Andrew Ng (Coursera)
+https://www.coursera.org/specializations/deep-learning
+
+- Neural networks, CNNs, RNNs, transformers
+- Foundation for perception models
+
+**Reinforcement Learning Specialization** - University of Alberta (Coursera)
+https://www.coursera.org/specializations/reinforcement-learning
+
+- Comprehensive RL coverage
+- Directly applicable to Isaac Gym training
+
+**Stanford CS231n: Deep Learning for Computer Vision**
+http://cs231n.stanford.edu/
+
+- Lecture videos and notes freely available
+- Essential for understanding YOLO and object detection
+
+**Stanford CS224n: Natural Language Processing with Deep Learning**
+http://web.stanford.edu/class/cs224n/
+
+- Transformer architectures and LLMs
+- Relevant to GPT-4 integration (Module 4)
+
+### ROS-Specific Courses
+
+**ROS 2 For Beginners** - The Construct
+https://www.theconstructsim.com/robotigniteacademy_learnros/ros-courses-library/
+
+- Hands-on ROS 2 training with browser-based simulations
+- Covers topics, services, actions, and navigation
+
+## Documentation and Tutorials
+
+### Official Documentation
+
+**ROS 2 Humble Documentation**
+https://docs.ros.org/en/humble/
+
+- Primary reference for all ROS 2 concepts
+- Tutorials, API docs, and migration guides
+
+**NVIDIA Isaac Sim Documentation**
+https://docs.omniverse.nvidia.com/isaacsim/latest/
+
+- Complete Isaac Sim reference (Module 3)
+- Tutorials, API, ROS 2 bridge
+
+**NVIDIA Isaac ROS Documentation**
+https://nvidia-isaac-ros.github.io/
+
+- GPU-accelerated perception packages
+- Integration examples and performance benchmarks
+
+**Nav2 Documentation**
+https://navigation.ros.org/
+
+- Navigation stack reference
+- Behavior trees, planners, and controllers
+
+**MoveIt 2 Documentation**
+https://moveit.picknik.ai/main/index.html
+
+- Motion planning framework
+- URDF setup and collision checking
+
+**Gazebo Documentation**
+https://gazebosim.org/docs
+
+- Simulation environment reference
+- Plugin development and world creation
+
+### GitHub Repositories
+
+**Awesome Robotics** - Curated robotics resources
+https://github.com/kiloreux/awesome-robotics
+
+**Awesome Robot Operating System 2 (ROS 2)**
+https://github.com/fkromer/awesome-ros2
+
+**NVIDIA Isaac ROS Examples**
+https://github.com/NVIDIA-ISAAC-ROS
+
+**OpenAI Robotics Research**
+https://github.com/openai/roboschool
+
+### Community Tutorials
+
+**The Construct** - ROS 2 learning platform
+https://www.theconstructsim.com/
+
+- Browser-based ROS 2 environments
+- Structured learning paths
+
+**Robotics Back-End** - YouTube Channel
+https://www.youtube.com/@RoboticsBackEnd
+
+- ROS 2 tutorials and projects
+- Practical implementation guides
+
+**Articulated Robotics** - YouTube Channel
+https://www.youtube.com/@ArticulatedRobotics
+
+- Hardware integration with ROS 2
+- URDF creation and Gazebo simulation
+
+**Automatic Addison** - ROS 2 Blog
+https://automaticaddison.com/
+
+- Step-by-step ROS 2 tutorials
+- Real robot projects
+
+## Software Tools and Libraries
+
+### Perception
+
+**YOLOv8** - Ultralytics
+https://github.com/ultralytics/ultralytics
+
+- Real-time object detection (used in Module 3)
+- Python API and ROS 2 integration
+
+**OpenCV** - Computer Vision Library
+https://opencv.org/
+
+- Image processing and classical CV
+- Python bindings
+
+**PyTorch** - Deep Learning Framework
+https://pytorch.org/
+
+- Training custom perception models
+- ONNX export for deployment
+
+### Simulation
+
+**PyBullet** - Physics Simulation
+https://pybullet.org/
+
+- Lightweight alternative to Gazebo
+- Python API for RL training
+
+**MuJoCo** - Physics Engine
+https://mujoco.org/
+
+- High-fidelity contact dynamics
+- Now free and open-source
+
+### Visualization
+
+**Foxglove Studio** - Robot Visualization
+https://foxglove.dev/
+
+- Modern alternative to RViz
+- Web-based with better performance
+
+**PlotJuggler** - Time Series Visualization
+https://github.com/facontidavide/PlotJuggler
+
+- Real-time data plotting
+- ROS bag playback
+
+## Research Labs and Groups
+
+### Academic Labs
+
+**MIT CSAIL Robotics Group**
+https://www.csail.mit.edu/research/robotics
+
+- Cutting-edge manipulation and learning research
+
+**Stanford AI Lab (SAIL)**
+https://ai.stanford.edu/
+
+- Vision-language models and robotic learning
+
+**CMU Robotics Institute**
+https://www.ri.cmu.edu/
+
+- World-leading robotics research
+
+**UC Berkeley RAIL (Robot AI & Learning Lab)**
+https://rail.eecs.berkeley.edu/
+
+- Deep RL and robotic manipulation
+
+### Industry Research
+
+**Google DeepMind Robotics**
+https://www.deepmind.com/research/highlighted-research/robotics
+
+- RT-1, RT-2, PaLM-E research
+
+**NVIDIA Robotics Research**
+https://www.nvidia.com/en-us/research/robotics/
+
+- Isaac platform development
+
+**OpenAI Robotics** (archived)
+https://openai.com/research/
+
+- Historical robotics publications
+
+**Boston Dynamics**
+https://www.bostondynamics.com/resources
+
+- Atlas, Spot technical resources
+
+**Tesla AI**
+https://www.tesla.com/AI
+
+- Humanoid robot (Optimus) development
+
+## Journals and Conferences
+
+### Top Journals
+
+**IEEE Transactions on Robotics**
+https://www.ieee-ras.org/publications/t-ro
+
+- Premier robotics journal
+
+**International Journal of Robotics Research (IJRR)**
+https://journals.sagepub.com/home/ijr
+
+- High-impact robotics research
+
+**Autonomous Robots**
+https://www.springer.com/journal/10514
+
+- Intelligent systems and autonomous agents
+
+### Major Conferences
+
+**ICRA** - International Conference on Robotics and Automation
+https://www.ieee-ras.org/conferences-workshops/fully-sponsored/icra
+
+- Largest robotics conference (annual)
+
+**IROS** - International Conference on Intelligent Robots and Systems
+https://www.ieee-ras.org/conferences-workshops/fully-sponsored/iros
+
+- Intelligent systems focus (annual)
+
+**RSS** - Robotics: Science and Systems
+https://roboticsconference.org/
+
+- Selective, high-quality research (annual)
+
+**CoRL** - Conference on Robot Learning
+https://www.corl.org/
+
+- Robot learning and RL focus (annual)
+
+**NeurIPS** - Neural Information Processing Systems
+https://nips.cc/
+
+- ML conference with robotics track
+
+**CVPR** - Computer Vision and Pattern Recognition
+https://cvpr.thecvf.com/
+
+- Vision research with robotics applications
+
+## Datasets
+
+**Open Images V7** - Google
+https://storage.googleapis.com/openimages/web/index.html
+
+- 9M images with bounding boxes
+- Training object detection models
+
+**COCO (Common Objects in Context)**
+https://cocodataset.org/
+
+- 330K images, 80 object categories
+- Standard benchmark for detection
+
+**ImageNet**
+https://www.image-net.org/
+
+- 14M images, 20K categories
+- Pre-training vision models
+
+**RoboNet** - Robot Manipulation Dataset
+https://www.robonet.wiki/
+
+- 15M robot trajectory frames
+- Multi-robot manipulation data
+
+## Podcasts and Media
+
+**The Robot Brains Podcast**
+https://www.therobotbrains.ai/
+
+- Interviews with robotics researchers
+
+**Robohub Podcast**
+https://robohub.org/podcast/
+
+- Robotics news and interviews
+
+**Lex Fridman Podcast** (robotics episodes)
+https://lexfridman.com/podcast/
+
+- Deep technical discussions with experts
+
+## Stay Updated
+
+**arXiv.org - Robotics Section**
+https://arxiv.org/list/cs.RO/recent
+
+- Latest robotics preprints
+
+**Papers with Code - Robotics**
+https://paperswithcode.com/area/robotics
+
+- Papers with implementations and benchmarks
+
+**ROS Discourse**
+https://discourse.ros.org/
+
+- Official ROS community forum
+
+**NVIDIA Developer Forums - Isaac**
+https://forums.developer.nvidia.com/c/agx-autonomous-machines/isaac/
+
+- Isaac Sim and Isaac ROS discussions
+
+**Hugging Face - Robotics**
+https://huggingface.co/spaces/huggingface/Models-for-Robot-Learning
+
+- Pre-trained models for robotics
+
+**Reddit - r/robotics**
+https://www.reddit.com/r/robotics/
+
+- Community discussions and projects
+
+---
+
+## How to Use This Resource
+
+1. **For Module 1 (ROS 2)**: Start with Lynch & Park textbook and ROS 2 official docs
+2. **For Module 2 (Digital Twins)**: Review Gazebo docs and simulation papers
+3. **For Module 3 (NVIDIA Isaac)**: Read Makoviychuk et al. (2021) and Isaac docs
+4. **For Module 4 (VLA)**: Study RT-2, PaLM-E, and SayCan papers
+5. **For Capstone**: Integrate knowledge from all modules with hands-on practice
+
+**Recommended Reading Order for Beginners:**
+1. Lynch & Park - Modern Robotics (Chapters 1-8)
+2. ROS 2 official tutorials (Humble)
+3. Sutton & Barto - RL: An Introduction (Chapters 1-6, 13)
+4. Selected VLA papers (RT-1, RT-2, SayCan)
+5. Isaac Sim tutorials and examples
+
+---
+
+*This resource list is continuously updated. Check the book's GitHub repository for the latest additions and community recommendations.*

@@ -1,0 +1,419 @@
+# ROS 2 Package Development Project
+
+In this project, you'll build a complete ROS 2 package for a simple humanoid robot controller, integrating everything you've learned about nodes, topics, services, and URDF.
+
+## Project Overview: Humanoid Joint Controller
+
+**Goal**: Create a ROS 2 package that:
+- Publishes joint commands to a simulated humanoid
+- Subscribes to joint state feedback
+- Provides a service to set target poses
+- Uses parameters for configuration
+- Includes a launch file for multi-node systems
+
+## Step 1: Create the Package
+
+```bash
+# Create workspace
+mkdir -p ~/humanoid_ws/src
+cd ~/humanoid_ws/src
+
+# Create package with dependencies
+ros2 pkg create --build-type ament_python humanoid_controller \
+  --dependencies rclpy std_msgs sensor_msgs geometry_msgs
+
+cd humanoid_controller
+```
+
+### Package Structure
+
+```
+humanoid_controller/
+├── humanoid_controller/
+│   ├── __init__.py
+│   ├── joint_controller.py
+│   ├── pose_service.py
+│   └── utils.py
+├── launch/
+│   └── controller.launch.py
+├── config/
+│   └── controller_params.yaml
+├── urdf/
+│   └── simple_humanoid.urdf.xacro
+├── package.xml
+├── setup.py
+└── setup.cfg
+```
+
+## Step 2: Joint Controller Node
+
+```python
+# humanoid_controller/joint_controller.py
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray
+import numpy as np
+
+class HumanoidJointController(Node):
+    def __init__(self):
+        super().__init__('humanoid_joint_controller')
+
+        # Parameters
+        self.declare_parameter('control_rate', 100.0)
+        self.declare_parameter('joint_names', [
+            'left_hip', 'left_knee', 'left_ankle',
+            'right_hip', 'right_knee', 'right_ankle'
+        ])
+        self.declare_parameter('kp_gains', [10.0] * 6)  # Proportional gains
+        self.declare_parameter('kd_gains', [1.0] * 6)   # Derivative gains
+
+        self.control_rate = self.get_parameter('control_rate').value
+        self.joint_names = self.get_parameter('joint_names').value
+        self.kp_gains = np.array(self.get_parameter('kp_gains').value)
+        self.kd_gains = np.array(self.get_parameter('kd_gains').value)
+
+        # State variables
+        self.current_positions = np.zeros(len(self.joint_names))
+        self.current_velocities = np.zeros(len(self.joint_names))
+        self.target_positions = np.zeros(len(self.joint_names))
+
+        # Publishers
+        self.cmd_pub = self.create_publisher(
+            Float64MultiArray,
+            '/joint_group_effort_controller/commands',
+            10
+        )
+
+        # Subscribers
+        self.state_sub = self.create_subscription(
+            JointState,
+            '/joint_states',
+            self.joint_state_callback,
+            10
+        )
+
+        # Control loop timer
+        self.timer = self.create_timer(
+            1.0 / self.control_rate,
+            self.control_loop
+        )
+
+        self.get_logger().info('Humanoid Joint Controller initialized')
+        self.get_logger().info(f'Control rate: {self.control_rate} Hz')
+        self.get_logger().info(f'Controlling joints: {self.joint_names}')
+
+    def joint_state_callback(self, msg):
+        """Update current joint states"""
+        for i, name in enumerate(self.joint_names):
+            if name in msg.name:
+                idx = msg.name.index(name)
+                self.current_positions[i] = msg.position[idx]
+                self.current_velocities[i] = msg.velocity[idx]
+
+    def control_loop(self):
+        """PD control loop"""
+        # Compute position error
+        position_error = self.target_positions - self.current_positions
+
+        # Compute velocity error (target velocity = 0 for position control)
+        velocity_error = -self.current_velocities
+
+        # PD control law
+        efforts = (self.kp_gains * position_error +
+                   self.kd_gains * velocity_error)
+
+        # Publish commands
+        cmd_msg = Float64MultiArray()
+        cmd_msg.data = efforts.tolist()
+        self.cmd_pub.publish(cmd_msg)
+
+    def set_target_pose(self, positions):
+        """Set target joint positions"""
+        if len(positions) == len(self.joint_names):
+            self.target_positions = np.array(positions)
+            self.get_logger().info(f'Target pose updated: {positions}')
+        else:
+            self.get_logger().error(
+                f'Expected {len(self.joint_names)} positions, got {len(positions)}'
+            )
+
+def main(args=None):
+    rclpy.init(args=args)
+    controller = HumanoidJointController()
+    rclpy.spin(controller)
+    controller.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Step 3: Pose Service
+
+```python
+# humanoid_controller/pose_service.py
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float64MultiArray
+from example_interfaces.srv import SetBool
+
+class PoseService(Node):
+    def __init__(self):
+        super().__init__('pose_service')
+
+        # Service to set standing pose
+        self.srv = self.create_service(
+            SetBool,
+            'set_standing_pose',
+            self.set_standing_callback
+        )
+
+        # Publisher for target poses
+        self.pose_pub = self.create_publisher(
+            Float64MultiArray,
+            '/target_joint_positions',
+            10
+        )
+
+        self.get_logger().info('Pose service ready')
+
+    def set_standing_callback(self, request, response):
+        """Service callback to set standing pose"""
+        if request.data:  # True = standing pose
+            standing_pose = [0.0, 0.3, -0.6, 0.0, 0.3, -0.6]
+            self.get_logger().info('Setting standing pose')
+        else:  # False = sitting pose
+            standing_pose = [1.0, 1.5, -0.8, 1.0, 1.5, -0.8]
+            self.get_logger().info('Setting sitting pose')
+
+        msg = Float64MultiArray()
+        msg.data = standing_pose
+        self.pose_pub.publish(msg)
+
+        response.success = True
+        response.message = 'Pose set successfully'
+        return response
+
+def main(args=None):
+    rclpy.init(args=args)
+    service = PoseService()
+    rclpy.spin(service)
+    service.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Step 4: Configuration File
+
+```yaml
+# config/controller_params.yaml
+/**:
+  ros__parameters:
+    control_rate: 100.0
+    joint_names: ['left_hip', 'left_knee', 'left_ankle',
+                  'right_hip', 'right_knee', 'right_ankle']
+    kp_gains: [50.0, 50.0, 30.0, 50.0, 50.0, 30.0]
+    kd_gains: [5.0, 5.0, 3.0, 5.0, 5.0, 3.0]
+```
+
+## Step 5: Launch File
+
+```python
+# launch/controller.launch.py
+
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    pkg_dir = get_package_share_directory('humanoid_controller')
+    params_file = os.path.join(pkg_dir, 'config', 'controller_params.yaml')
+
+    return LaunchDescription([
+        Node(
+            package='humanoid_controller',
+            executable='joint_controller',
+            name='joint_controller',
+            parameters=[params_file],
+            output='screen'
+        ),
+        Node(
+            package='humanoid_controller',
+            executable='pose_service',
+            name='pose_service',
+            output='screen'
+        ),
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            parameters=[{'robot_description': 'urdf/simple_humanoid.urdf'}],
+            output='screen'
+        )
+    ])
+```
+
+## Step 6: setup.py Configuration
+
+```python
+from setuptools import setup
+import os
+from glob import glob
+
+package_name = 'humanoid_controller'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'urdf'), glob('urdf/*.urdf*')),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='Your Name',
+    maintainer_email='you@example.com',
+    description='Humanoid robot joint controller package',
+    license='Apache License 2.0',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'joint_controller = humanoid_controller.joint_controller:main',
+            'pose_service = humanoid_controller.pose_service:main',
+        ],
+    },
+)
+```
+
+## Step 7: Build and Run
+
+```bash
+# Build the package
+cd ~/humanoid_ws
+colcon build --packages-select humanoid_controller
+
+# Source the workspace
+source install/setup.bash
+
+# Launch the system
+ros2 launch humanoid_controller controller.launch.py
+
+# In another terminal, call the service
+ros2 service call /set_standing_pose example_interfaces/srv/SetBool "{data: true}"
+```
+
+## Step 8: Testing
+
+```bash
+# List nodes
+ros2 node list
+
+# Check topics
+ros2 topic list
+
+# Monitor joint commands
+ros2 topic echo /joint_group_effort_controller/commands
+
+# Monitor joint states
+ros2 topic echo /joint_states
+
+# Check service
+ros2 service list
+ros2 service type /set_standing_pose
+```
+
+## Project Extensions
+
+### Extension 1: Add Logging and Diagnostics
+
+```python
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
+
+self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+
+def publish_diagnostics(self):
+    diag_msg = DiagnosticArray()
+    status = DiagnosticStatus()
+    status.level = DiagnosticStatus.OK
+    status.name = 'Joint Controller'
+    status.message = 'Operating normally'
+    status.hardware_id = 'humanoid_controller'
+    diag_msg.status.append(status)
+    self.diag_pub.publish(diag_msg)
+```
+
+### Extension 2: Add Velocity Control Mode
+
+```python
+self.declare_parameter('control_mode', 'position')  # or 'velocity'
+
+if self.get_parameter('control_mode').value == 'velocity':
+    efforts = self.kp_gains * velocity_error
+```
+
+### Extension 3: Add Safety Limits
+
+```python
+self.declare_parameter('max_effort', 100.0)
+max_effort = self.get_parameter('max_effort').value
+
+# Clamp efforts
+efforts = np.clip(efforts, -max_effort, max_effort)
+```
+
+## Best Practices Demonstrated
+
+✅ **Modular design**: Separate nodes for controller and services
+✅ **Configuration**: Use YAML files for parameters
+✅ **Launch files**: Coordinate multiple nodes
+✅ **Error handling**: Validate inputs and provide feedback
+✅ **Logging**: Use ROS 2 logger for debugging
+✅ **Documentation**: Clear docstrings and comments
+
+## Debugging Tips
+
+```bash
+# View TF tree
+ros2 run tf2_tools view_frames
+
+# Record and playback data
+ros2 bag record -a  # Record all topics
+ros2 bag play <bag_file>
+
+# Profile performance
+ros2 run performance_test perf_test
+
+# Check parameter values
+ros2 param list
+ros2 param get /joint_controller control_rate
+```
+
+## Summary
+
+You've built a complete ROS 2 package with:
+- Multiple nodes (controller, service)
+- Inter-node communication (topics, services)
+- Configuration management (parameters, YAML)
+- Launch file orchestration
+- Proper package structure
+
+This project demonstrates the skills needed for real humanoid robot development!
+
+## Next Module
+
+Congratulations on completing Module 1! You now understand ROS 2 fundamentals. Next, we'll explore simulation environments in Module 2: Digital Twins.
+
+---
+
+**Project complete!** Share your implementation on GitHub and continue learning.

@@ -1,0 +1,699 @@
+# LLM Integration for Robotic Planning
+
+Large Language Models (LLMs) transform robotics by enabling **high-level reasoning** and **task decomposition** through natural language. This section covers LLM APIs, prompt engineering, action grounding, and deployment patterns.
+
+## Why LLMs for Robotics?
+
+Traditional robotic planning uses **symbolic AI** (PDDL, behavior trees):
+
+**PDDL Example**:
+```lisp
+(define (domain kitchen)
+  (:action pick-up
+    :parameters (?obj - object ?loc - location)
+    :precondition (and (at-robot ?loc) (at ?obj ?loc))
+    :effect (and (holding ?obj) (not (at ?obj ?loc))))
+)
+```
+
+**Problems**:
+- Requires domain experts to define actions and preconditions
+- Brittle: doesn't handle unexpected situations
+- No common sense reasoning
+
+**LLM Advantage**:
+- **Zero-shot generalization**: Works on tasks never explicitly programmed
+- **Common sense**: Understands "clean the table" without defining "clean"
+- **Natural language**: No need for formal representations
+
+## LLM Architectures for Robotics
+
+### 1. Planner-Only Architecture
+
+LLM generates a sequence of actions; robot executes blindly.
+
+```
+User Command → LLM → [action1, action2, ...] → Robot Executor
+```
+
+**Example**:
+```python
+prompt = """
+You are a robot planner. Break down this command into actions:
+"Make me coffee"
+
+Available actions: navigate(location), grasp(object), pour(source, dest), activate(device)
+
+Output a Python list of actions.
+"""
+
+response = llm.generate(prompt)
+# Output: [navigate("kitchen"), grasp("coffee_cup"), navigate("coffee_machine"), ...]
+```
+
+**Limitation**: No feedback from environment.
+
+### 2. ReAct (Reasoning + Acting)
+
+LLM alternates between **reasoning** (thinking) and **acting** (executing actions), observing results[^1].
+
+```
+User Command
+    ↓
+LLM: Thought: "I need to find the coffee cup"
+    ↓
+LLM: Action: detect_objects()
+    ↓
+Observation: ["cup at (x=0.5, y=0.3)", "kettle at (x=1.2, y=0.8)"]
+    ↓
+LLM: Thought: "I found the cup, now grasp it"
+    ↓
+LLM: Action: navigate(0.5, 0.3)
+    ↓
+...
+```
+
+**Advantage**: Closed-loop, adapts to environment.
+
+### 3. Code as Policies
+
+LLM generates Python code that becomes the robot's policy[^2].
+
+**Example prompt**:
+```
+Generate Python code to accomplish: "Stack the three red blocks"
+
+Available functions:
+- detect_objects(color) -> List[Object]
+- pick(obj: Object) -> None
+- place(location: Tuple[float, float, float]) -> None
+
+Write a function stack_blocks():
+```
+
+**LLM output**:
+```python
+def stack_blocks():
+    blocks = detect_objects(color="red")
+    if len(blocks) < 3:
+        raise ValueError("Need 3 red blocks")
+
+    # Pick first block as base
+    base = blocks[0]
+
+    # Stack remaining blocks
+    for i, block in enumerate(blocks[1:], start=1):
+        pick(block)
+        place((base.x, base.y, base.z + 0.05 * i))
+```
+
+**Advantage**: Full expressiveness of Python (loops, conditionals, error handling).
+
+## Prompt Engineering for Robotics
+
+### Prompt Structure
+
+**Effective robot prompts** follow this template:
+
+```python
+prompt = f"""
+# System role
+You are a robotic task planner for a humanoid robot.
+
+# Available actions
+{available_actions}
+
+# Current state
+{robot_state}
+{perception_data}
+
+# User command
+{user_command}
+
+# Instructions
+Generate a step-by-step plan. Output as JSON with this format:
+{{"plan": [{{"action": "action_name", "params": {{"param1": "value1"}}}}]}}
+"""
+```
+
+### Example: "Make Breakfast" Task
+
+```python
+prompt = """
+You are a robotic task planner for a humanoid robot in a kitchen.
+
+Available actions:
+- navigate(location: str) - Move to location
+- open(object: str) - Open container/appliance
+- grasp(object: str) - Pick up object
+- place(location: str) - Put down object at location
+- activate(device: str) - Turn on device
+- pour(source: str, dest: str) - Pour from source into dest
+
+Current state:
+- Robot at: "living_room"
+- Objects detected: ["bread", "toaster", "butter", "knife", "plate"]
+
+User command: "Make me toast with butter"
+
+Generate a step-by-step plan. Output as JSON.
+"""
+
+# LLM output
+{
+  "plan": [
+    {"action": "navigate", "params": {"location": "kitchen"}},
+    {"action": "grasp", "params": {"object": "bread"}},
+    {"action": "place", "params": {"location": "toaster"}},
+    {"action": "activate", "params": {"device": "toaster"}},
+    {"action": "wait", "params": {"seconds": 120}},
+    {"action": "grasp", "params": {"object": "toast"}},
+    {"action": "place", "params": {"location": "plate"}},
+    {"action": "grasp", "params": {"object": "butter"}},
+    {"action": "apply", "params": {"object": "butter", "target": "toast"}},
+    {"action": "navigate", "params": {"location": "dining_table"}}
+  ]
+}
+```
+
+### Chain-of-Thought (CoT) Prompting
+
+Add "Let's think step by step" to improve reasoning:
+
+```python
+prompt = """
+User command: "Clean the spilled juice on the table"
+
+Available actions: navigate, grasp, wipe, dispose
+
+Let's think step by step:
+1. What's the goal? (clean juice)
+2. What do I need? (cloth or sponge)
+3. Where is it? (need to find it)
+4. How do I clean? (wipe motion)
+5. What do I do with dirty cloth? (dispose or wash)
+
+Now generate the action plan:
+"""
+```
+
+**Result**: More robust plans with fewer errors.
+
+## Action Grounding
+
+**Action grounding** maps abstract language to concrete robot primitives.
+
+### Grounding Table
+
+Maintain a mapping between language and robot actions:
+
+```python
+ACTION_GROUNDING = {
+    "pick up": {"action": "grasp", "controller": "gripper_controller"},
+    "grab": {"action": "grasp", "controller": "gripper_controller"},
+    "put down": {"action": "place", "controller": "arm_controller"},
+    "move to": {"action": "navigate", "controller": "base_controller"},
+    "go to": {"action": "navigate", "controller": "base_controller"},
+    "turn on": {"action": "activate", "controller": "manipulation_controller"},
+}
+
+def ground_action(language_action: str) -> dict:
+    """Convert language action to robot-executable command"""
+    for phrase, grounding in ACTION_GROUNDING.items():
+        if phrase in language_action.lower():
+            return grounding
+    raise ValueError(f"Unknown action: {language_action}")
+```
+
+### Semantic Parsing
+
+Use LLM for semantic parsing:
+
+```python
+def parse_command(user_command: str) -> dict:
+    prompt = f"""
+    Parse this command into structured form:
+    "{user_command}"
+
+    Output JSON with:
+    - action: main verb
+    - object: target object
+    - location: destination (if any)
+    - modifiers: adjectives (color, size, etc.)
+    """
+
+    response = llm.generate(prompt)
+    return json.loads(response)
+
+# Example
+parse_command("Pick up the red cup and place it on the table")
+# Output:
+{
+    "action": "pick_and_place",
+    "object": "cup",
+    "modifiers": {"color": "red"},
+    "location": "table"
+}
+```
+
+## ROS 2 Integration
+
+### Architecture
+
+```
+┌──────────────────────────────────────┐
+│       LLM Planner Node               │
+│  ┌────────────────────────────────┐  │
+│  │  OpenAI / Anthropic / Local   │  │
+│  └────────────────────────────────┘  │
+└──────────────┬───────────────────────┘
+               │ /task_plan (custom msg)
+               ↓
+┌──────────────────────────────────────┐
+│      Action Executor Node            │
+│  - Interprets plan                   │
+│  - Calls ROS 2 action servers        │
+└──────────────┬───────────────────────┘
+               │
+    ┌──────────┼──────────┐
+    ↓          ↓          ↓
+[Navigate] [Manipulate] [Grasp]
+(Nav2)     (MoveIt2)    (Gripper)
+```
+
+### Custom Message Types
+
+Define custom message for task plans:
+
+```bash
+# Create msg/TaskPlan.msg
+std_msgs/Header header
+ActionStep[] steps
+---
+# msg/ActionStep.msg
+string action_type
+string object_name
+geometry_msgs/Pose target_pose
+string[] parameters
+```
+
+### LLM Planner Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from robot_interfaces.msg import TaskPlan, ActionStep
+import openai
+import json
+
+class LLMPlannerNode(Node):
+    def __init__(self):
+        super().__init__('llm_planner')
+
+        # Parameters
+        self.declare_parameter('openai_api_key', '')
+        self.declare_parameter('model', 'gpt-4-turbo-preview')
+
+        api_key = self.get_parameter('openai_api_key').value
+        openai.api_key = api_key
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String,
+            '/user_command',
+            self.command_callback,
+            10
+        )
+
+        # Publishers
+        self.plan_pub = self.create_publisher(TaskPlan, '/task_plan', 10)
+
+        self.get_logger().info('LLM Planner Node started')
+
+    def command_callback(self, msg):
+        user_command = msg.data
+        self.get_logger().info(f'Received command: {user_command}')
+
+        # Generate plan with LLM
+        plan = self.generate_plan(user_command)
+
+        # Publish plan
+        self.plan_pub.publish(plan)
+
+    def generate_plan(self, command: str) -> TaskPlan:
+        prompt = self.create_prompt(command)
+
+        response = openai.ChatCompletion.create(
+            model=self.get_parameter('model').value,
+            messages=[
+                {"role": "system", "content": "You are a robot task planner."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1  # Low temperature for consistent planning
+        )
+
+        # Parse LLM response
+        plan_json = json.loads(response.choices[0].message.content)
+
+        # Convert to ROS message
+        task_plan = TaskPlan()
+        task_plan.header.stamp = self.get_clock().now().to_msg()
+
+        for step in plan_json['steps']:
+            action_step = ActionStep()
+            action_step.action_type = step['action']
+            action_step.object_name = step.get('object', '')
+            # Parse target_pose if present
+            task_plan.steps.append(action_step)
+
+        return task_plan
+
+    def create_prompt(self, command: str) -> str:
+        return f"""
+        Generate a task plan for: "{command}"
+
+        Available actions:
+        - navigate: Move to location
+        - detect_objects: Find objects in scene
+        - grasp: Pick up object
+        - place: Put down object
+        - open: Open container
+
+        Output JSON:
+        {{"steps": [{{"action": "...", "object": "...", "params": {{}}}}]}}
+        """
+
+def main():
+    rclpy.init()
+    node = LLMPlannerNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Action Executor Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient
+from robot_interfaces.msg import TaskPlan
+from nav2_msgs.action import NavigateToPose
+from geometry_msgs.msg import PoseStamped
+
+class ActionExecutorNode(Node):
+    def __init__(self):
+        super().__init__('action_executor')
+
+        # Subscriber for task plans
+        self.plan_sub = self.create_subscription(
+            TaskPlan,
+            '/task_plan',
+            self.plan_callback,
+            10
+        )
+
+        # Action clients
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        # Add more action clients (MoveIt, gripper, etc.)
+
+        self.get_logger().info('Action Executor Node started')
+
+    def plan_callback(self, plan: TaskPlan):
+        self.get_logger().info(f'Executing plan with {len(plan.steps)} steps')
+
+        for i, step in enumerate(plan.steps):
+            self.get_logger().info(f'Step {i+1}: {step.action_type} {step.object_name}')
+            self.execute_action(step)
+
+    def execute_action(self, step):
+        if step.action_type == 'navigate':
+            self.execute_navigate(step)
+        elif step.action_type == 'grasp':
+            self.execute_grasp(step)
+        elif step.action_type == 'place':
+            self.execute_place(step)
+        else:
+            self.get_logger().warn(f'Unknown action: {step.action_type}')
+
+    def execute_navigate(self, step):
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.pose.pose = step.target_pose
+
+        self.nav_client.wait_for_server()
+        future = self.nav_client.send_goal_async(goal_msg)
+        rclpy.spin_until_future_complete(self, future)
+
+def main():
+    rclpy.init()
+    node = ActionExecutorNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Error Handling and Recovery
+
+LLMs can fail or hallucinate. Implement safety checks:
+
+### 1. Action Validation
+
+```python
+def validate_action(action: ActionStep) -> bool:
+    """Validate action is safe and feasible"""
+
+    # Check 1: Action exists
+    if action.action_type not in VALID_ACTIONS:
+        return False
+
+    # Check 2: Object is in workspace
+    if action.object_name and not is_object_reachable(action.object_name):
+        return False
+
+    # Check 3: Safety constraints
+    if action.action_type == 'grasp' and is_fragile(action.object_name):
+        return False  # Don't grasp fragile objects without careful planning
+
+    return True
+```
+
+### 2. Fallback Behaviors
+
+```python
+class RobustExecutor:
+    def execute_plan(self, plan: TaskPlan):
+        for step in plan.steps:
+            if not validate_action(step):
+                self.request_clarification(step)
+                continue
+
+            success = self.attempt_action(step, max_retries=3)
+
+            if not success:
+                self.replan_from_current_state()
+```
+
+### 3. Replanning with Feedback
+
+```python
+def replan_with_feedback(original_command: str, failure_info: str):
+    prompt = f"""
+    Original task: "{original_command}"
+
+    Failure: {failure_info}
+
+    Current robot state:
+    - Position: (x=1.2, y=0.5)
+    - Holding: None
+    - Visible objects: [table, chair, cup]
+
+    Generate a new plan that accounts for this failure.
+    """
+
+    new_plan = llm.generate(prompt)
+    return new_plan
+```
+
+## Local LLM Deployment
+
+For **low-latency** or **offline** operation, deploy local LLMs:
+
+### Using Ollama (Recommended)
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull model
+ollama pull llama3.1:8b
+
+# Start server
+ollama serve
+```
+
+**Python integration**:
+```python
+import requests
+
+def query_local_llm(prompt: str) -> str:
+    response = requests.post(
+        'http://localhost:11434/api/generate',
+        json={
+            'model': 'llama3.1:8b',
+            'prompt': prompt,
+            'stream': False
+        }
+    )
+    return response.json()['response']
+```
+
+### Using HuggingFace Transformers
+
+```python
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+class LocalLLMPlanner:
+    def __init__(self):
+        model_name = "meta-llama/Llama-3.1-8B-Instruct"
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            torch_dtype=torch.float16
+        )
+
+    def generate_plan(self, prompt: str) -> str:
+        inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
+        outputs = self.model.generate(
+            inputs.input_ids,
+            max_new_tokens=512,
+            temperature=0.1,
+            do_sample=True
+        )
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+```
+
+**Performance**: Llama 3.1 8B achieves ~30 tokens/sec on RTX 4090, sufficient for robot planning.
+
+## Benchmarking LLM Planners
+
+### Metrics
+
+1. **Plan Quality**: Does the plan accomplish the task?
+2. **Safety**: Are all actions safe?
+3. **Efficiency**: Minimum number of steps?
+4. **Latency**: Time to generate plan
+5. **Cost**: API cost per plan
+
+### Example Evaluation
+
+```python
+test_cases = [
+    {"command": "Make me coffee", "expected_actions": ["navigate", "grasp", "pour"]},
+    {"command": "Clean the table", "expected_actions": ["grasp", "wipe", "dispose"]},
+    # ... more test cases
+]
+
+results = []
+for case in test_cases:
+    plan = llm_planner.generate(case["command"])
+
+    # Check plan validity
+    valid = all(action in VALID_ACTIONS for action in plan.actions)
+
+    # Check plan completeness
+    complete = all(expected in [a.type for a in plan.actions]
+                   for expected in case["expected_actions"])
+
+    results.append({
+        "command": case["command"],
+        "valid": valid,
+        "complete": complete,
+        "num_steps": len(plan.actions)
+    })
+
+# Compute metrics
+success_rate = sum(r["valid"] and r["complete"] for r in results) / len(results)
+avg_steps = sum(r["num_steps"] for r in results) / len(results)
+```
+
+## Case Studies
+
+### 1. SayCan (Google)[^1]
+
+**Approach**: Combines LLM (PaLM) with value functions for action grounding.
+
+**Key insight**: LLM proposes actions, value function (trained with RL) scores feasibility.
+
+```python
+def saycan_select_action(command, perception):
+    # LLM proposes top-k actions
+    proposed_actions = llm.propose_actions(command, k=10)
+
+    # Value function scores each action
+    scores = [value_function(action, perception) for action in proposed_actions]
+
+    # Select highest-scoring feasible action
+    best_action = proposed_actions[np.argmax(scores)]
+    return best_action
+```
+
+**Result**: 84% success rate on real robot tasks.
+
+### 2. Code as Policies (Google)[^2]
+
+**Approach**: LLM generates Python code; code becomes the policy.
+
+**Example**: "Stack blocks by size"
+
+```python
+# Generated by LLM
+def stack_by_size():
+    blocks = detect_objects(type="block")
+    blocks_sorted = sorted(blocks, key=lambda b: b.size, reverse=True)
+
+    base = blocks_sorted[0]
+    for i, block in enumerate(blocks_sorted[1:], start=1):
+        pick(block)
+        place((base.x, base.y, base.z + 0.05 * i))
+```
+
+**Advantage**: Leverages LLM's programming knowledge.
+
+## Summary
+
+LLM integration enables:
+
+✅ **Natural language control** without explicit programming
+✅ **Task decomposition** from high-level commands
+✅ **Common-sense reasoning** for novel situations
+✅ **ReAct patterns** for closed-loop control
+✅ **Code generation** for complex policies
+
+**Best practices**:
+- Use **cloud LLMs** (GPT-4, Claude) for prototyping
+- Deploy **local models** (Llama 3.1) for production
+- Implement **safety validation** for all actions
+- Combine LLMs with **low-level controllers** for robustness
+
+## Next Steps
+
+Continue to [Voice-to-Action with Whisper](./whisper-voice-action.mdx) to enable spoken commands for your robot!
+
+---
+
+## References
+
+[^1]: Ahn, M., et al. (2022). Do As I Can, Not As I Say: Grounding Language in Robotic Affordances. *Conference on Robot Learning (CoRL)*.
+
+[^2]: Liang, J., et al. (2023). Code as Policies: Language Model Programs for Embodied Control. *ICRA 2023*, 9493-9500.
+
+[^3]: Yao, S., et al. (2023). ReAct: Synergizing Reasoning and Acting in Language Models. *ICLR 2023*.
+
+[^4]: Huang, W., et al. (2023). Grounded Decoding: Guiding Text Generation with Grounded Models for Embodied Agents. *NeurIPS 2023*.

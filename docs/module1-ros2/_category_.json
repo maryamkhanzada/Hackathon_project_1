@@ -1,0 +1,9 @@
+{
+  "label": "Module 1: ROS 2 Basics",
+  "position": 2,
+  "link": {
+    "type": "doc",
+    "id": "module1-ros2/index"
+  },
+  "collapsed": false
+}

@@ -1,0 +1,574 @@
+# Testing & Troubleshooting
+
+Comprehensive guide to testing, debugging, and resolving common issues in your autonomous humanoid system.
+
+## Testing Strategy
+
+### 1. Unit Testing Individual Nodes
+
+Test each ROS 2 node in isolation before integration.
+
+#### Example: Testing Whisper Node
+
+```python
+# test_whisper_node.py
+import unittest
+import rclpy
+from std_msgs.msg import String
+from voice_control.whisper_node import WhisperNode
+
+class TestWhisperNode(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        rclpy.init()
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def test_transcription_published(self):
+        """Test that transcriptions are published to /voice_command"""
+
+        node = WhisperNode()
+
+        # Create test subscriber
+        received_messages = []
+
+        def callback(msg):
+            received_messages.append(msg.data)
+
+        test_sub = node.create_subscription(
+            String, '/voice_command', callback, 10
+        )
+
+        # Simulate audio input (would need mock in real test)
+        # ...
+
+        # Spin for messages
+        rclpy.spin_once(node, timeout_sec=5.0)
+
+        self.assertGreater(len(received_messages), 0, "No messages received")
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+Run tests:
+```bash
+python -m pytest test_whisper_node.py
+```
+
+### 2. Integration Testing
+
+Test component interactions.
+
+#### Example: Voice → Planning Integration
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import json
+
+class IntegrationTester(Node):
+    def __init__(self):
+        super().__init__('integration_tester')
+
+        self.plan_received = False
+
+        # Publisher (simulate voice)
+        self.voice_pub = self.create_publisher(String, '/voice_command', 10)
+
+        # Subscriber (check planning output)
+        self.plan_sub = self.create_subscription(
+            String, '/task_plan', self.plan_callback, 10
+        )
+
+    def plan_callback(self, msg):
+        plan = json.loads(msg.data)
+        self.get_logger().info(f'Received plan with {len(plan["steps"])} steps')
+        self.plan_received = True
+
+    def run_test(self):
+        """Test voice → planning pipeline"""
+
+        # Send test command
+        cmd = String()
+        cmd.data = "Go to the kitchen"
+        self.voice_pub.publish(cmd)
+
+        self.get_logger().info('Published voice command, waiting for plan...')
+
+        # Wait for response
+        timeout = 10.0  # seconds
+        start_time = self.get_clock().now()
+
+        while not self.plan_received:
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+            elapsed = (self.get_clock().now() - start_time).nanoseconds / 1e9
+            if elapsed > timeout:
+                self.get_logger().error('TIMEOUT: No plan received')
+                return False
+
+        self.get_logger().info('TEST PASSED: Plan received successfully')
+        return True
+
+def main():
+    rclpy.init()
+    tester = IntegrationTester()
+
+    # Give time for all nodes to start
+    import time
+    time.sleep(2.0)
+
+    success = tester.run_test()
+
+    rclpy.shutdown()
+    exit(0 if success else 1)
+```
+
+### 3. End-to-End Testing
+
+Test complete task workflows.
+
+```bash
+# test_scenarios.sh
+#!/bin/bash
+
+echo "Running E2E Test: Kitchen Navigation"
+
+# Launch full system in background
+ros2 launch humanoid_capstone full_system.launch.py &
+LAUNCH_PID=$!
+
+sleep 10  # Wait for startup
+
+# Send test command
+ros2 topic pub --once /voice_command std_msgs/msg/String "{data: 'Go to the kitchen'}"
+
+# Wait for navigation to complete
+sleep 30
+
+# Check robot reached kitchen
+# (would check /odom position in real test)
+
+# Cleanup
+kill $LAUNCH_PID
+
+echo "Test complete"
+```
+
+## Debugging Tools
+
+### 1. ROS 2 Command-Line Tools
+
+**List nodes**:
+```bash
+ros2 node list
+
+# Expected output:
+# /whisper_node
+# /llm_planner
+# /object_detector
+# ...
+```
+
+**Check topics**:
+```bash
+ros2 topic list
+
+# See message rates
+ros2 topic hz /camera/image_raw
+
+# Echo messages
+ros2 topic echo /voice_command
+```
+
+**Inspect node info**:
+```bash
+ros2 node info /whisper_node
+
+# Shows:
+# - Publishers
+# - Subscribers
+# - Services
+# - Actions
+```
+
+### 2. RViz Visualization
+
+Visualize robot state and sensor data:
+
+```bash
+rviz2
+```
+
+**Add displays**:
+- RobotModel: Show URDF
+- TF: Visualize coordinate frames
+- Camera: Show camera feed
+- LaserScan / PointCloud2: Show depth data
+- Map: Show navigation costmaps
+- Path: Show planned navigation path
+
+### 3. rqt Tools
+
+**rqt_graph**: Visualize ROS 2 computational graph
+
+```bash
+rqt_graph
+```
+
+Shows all nodes, topics, and connections.
+
+**rqt_console**: View log messages
+
+```bash
+rqt_console
+```
+
+Filter by severity (Debug, Info, Warn, Error, Fatal).
+
+**rqt_plot**: Real-time data plotting
+
+```bash
+rqt_plot /odom/pose/pose/position/x /odom/pose/pose/position/y
+```
+
+### 4. ROS Bags for Debugging
+
+Record and replay data:
+
+```bash
+# Record all topics
+ros2 bag record -a -o test_run_1
+
+# Record specific topics
+ros2 bag record /camera/image_raw /detections /voice_command
+
+# Replay
+ros2 bag play test_run_1
+
+# Inspect bag
+ros2 bag info test_run_1
+```
+
+## Common Issues and Solutions
+
+### Issue 1: Nodes Not Starting
+
+**Symptom**: `ros2 node list` shows missing nodes
+
+**Diagnosis**:
+```bash
+# Check if package built
+ros2 pkg list | grep humanoid_capstone
+
+# Check executable permissions
+ls -l ~/capstone_ws/install/voice_control/lib/voice_control/whisper_node.py
+
+# Check Python path
+which python3
+```
+
+**Solutions**:
+1. Rebuild workspace:
+   ```bash
+   cd ~/capstone_ws
+   colcon build --symlink-install
+   source install/setup.bash
+   ```
+
+2. Make executables:
+   ```bash
+   chmod +x ~/capstone_ws/src/voice_control/voice_control/*.py
+   ```
+
+3. Check dependencies:
+   ```bash
+   rosdep install --from-paths src --ignore-src -r -y
+   ```
+
+### Issue 2: No Camera Images
+
+**Symptom**: `/camera/image_raw` topic has no data
+
+**Diagnosis**:
+```bash
+# Check if topic exists
+ros2 topic list | grep camera
+
+# Check publish rate
+ros2 topic hz /camera/image_raw
+
+# Check Isaac Sim ROS bridge
+# In Isaac Sim, verify ROS 2 bridge is enabled
+```
+
+**Solutions**:
+1. Verify Isaac Sim bridge:
+   ```python
+   # In Isaac Sim script
+   from omni.isaac.ros2_bridge import ROS2Bridge
+   ros_bridge = ROS2Bridge()
+   # Ensure camera sensor is added
+   ```
+
+2. Check camera exists in scene:
+   ```python
+   from omni.isaac.core import World
+   world = World()
+   camera = world.scene.get_object("Camera")
+   print(camera)  # Should not be None
+   ```
+
+3. Test with image viewer:
+   ```bash
+   ros2 run image_tools showimage --ros-args -r image:=/camera/image_raw
+   ```
+
+### Issue 3: Navigation Not Working
+
+**Symptom**: Robot doesn't move when navigation goal sent
+
+**Diagnosis**:
+```bash
+# Check if Nav2 running
+ros2 node list | grep nav2
+
+# Check costmap
+ros2 topic echo /global_costmap/costmap --once
+
+# Check if goal accepted
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "..."
+```
+
+**Solutions**:
+1. Verify map is loaded:
+   ```bash
+   ros2 topic echo /map --once
+   ```
+
+2. Check robot localization:
+   ```bash
+   ros2 topic echo /amcl_pose
+   ```
+
+3. Clear costmaps:
+   ```bash
+   ros2 service call /global_costmap/clear_entirely_global_costmap nav2_msgs/srv/ClearEntireCostmap
+   ```
+
+4. Check parameters:
+   ```bash
+   ros2 param list /controller_server
+   ros2 param get /controller_server max_vel_x
+   ```
+
+### Issue 4: Whisper Not Transcribing
+
+**Symptom**: No output on `/voice_command` topic
+
+**Diagnosis**:
+```bash
+# List audio devices
+arecord -l
+
+# Test microphone
+arecord -d 5 test.wav && aplay test.wav
+
+# Check Whisper model loaded
+# Look in node logs for "Loading Whisper model..."
+```
+
+**Solutions**:
+1. Install audio dependencies:
+   ```bash
+   sudo apt install portaudio19-dev python3-pyaudio
+   pip install pyaudio
+   ```
+
+2. Select correct audio device:
+   ```python
+   # In whisper_node.py
+   self.audio = pyaudio.PyAudio()
+
+   # List devices
+   for i in range(self.audio.get_device_count()):
+       info = self.audio.get_device_info_by_index(i)
+       print(f"{i}: {info['name']}")
+
+   # Use specific device
+   stream = self.audio.open(
+       input_device_index=1,  # Change to your device
+       # ...
+   )
+   ```
+
+3. Test Whisper separately:
+   ```python
+   import whisper
+   model = whisper.load_model("small")
+   result = model.transcribe("test.wav")
+   print(result["text"])
+   ```
+
+### Issue 5: GPT-4 API Errors
+
+**Symptom**: LLM planner crashes with API errors
+
+**Diagnosis**:
+```bash
+# Check API key
+echo $OPENAI_API_KEY
+
+# Test API
+curl https://api.openai.com/v1/models \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+```
+
+**Solutions**:
+1. Verify API key is set:
+   ```bash
+   source ~/capstone_ws/.env
+   export OPENAI_API_KEY=sk-...
+   ```
+
+2. Check rate limits:
+   - OpenAI has rate limits (requests per minute)
+   - Add retry logic with exponential backoff
+
+3. Handle API errors gracefully:
+   ```python
+   try:
+       response = openai.ChatCompletion.create(...)
+   except openai.error.RateLimitError:
+       self.get_logger().warn('Rate limit hit, retrying...')
+       time.sleep(5)
+       # Retry
+   except openai.error.APIError as e:
+       self.get_logger().error(f'OpenAI API error: {e}')
+   ```
+
+## Performance Profiling
+
+### CPU Usage
+
+```bash
+# Monitor ROS 2 node CPU usage
+top -p $(pgrep -d',' -f ros2)
+
+# Detailed profiling with py-spy
+pip install py-spy
+py-spy top --pid $(pgrep -f whisper_node)
+```
+
+### GPU Usage
+
+```bash
+# Monitor GPU usage
+nvidia-smi dmon -s u
+
+# For Isaac Sim
+nvidia-smi
+```
+
+### Message Latency
+
+```bash
+# Check end-to-end latency
+ros2 topic delay /voice_command /cmd_vel
+
+# Expected: under 3 seconds for full pipeline
+```
+
+### Network Bandwidth
+
+```bash
+# Monitor ROS 2 bandwidth usage
+ros2 topic bw /camera/image_raw
+
+# Expected: ~10-30 MB/s for 30 FPS 640x480 images
+```
+
+## Debugging Checklist
+
+When system doesn't work as expected:
+
+- [ ] All nodes running? (`ros2 node list`)
+- [ ] Topics publishing? (`ros2 topic hz <topic>`)
+- [ ] Messages formatted correctly? (`ros2 topic echo <topic>`)
+- [ ] TF tree complete? (`ros2 run tf2_tools view_frames`)
+- [ ] Isaac Sim running without errors? (check console)
+- [ ] API keys configured? (`.env` file)
+- [ ] Dependencies installed? (`rosdep check --from-paths src`)
+- [ ] Network connectivity? (for cloud APIs)
+- [ ] GPU available? (`nvidia-smi`)
+- [ ] Sufficient disk space? (`df -h`)
+
+## Advanced Debugging
+
+### GDB for Crashes
+
+If a C++ node crashes:
+
+```bash
+gdb --args ros2 run <package> <executable>
+(gdb) run
+# When crashes:
+(gdb) backtrace
+```
+
+### Python Debugging
+
+Use `pdb` for Python nodes:
+
+```python
+import pdb
+
+def problematic_function():
+    pdb.set_trace()  # Debugger will stop here
+    # ...
+```
+
+Or use VS Code with ROS 2 debugging configuration.
+
+### Network Debugging
+
+Check ROS 2 DDS communication:
+
+```bash
+# Show ROS 2 discovery info
+ros2 doctor
+
+# Check DDS configuration
+printenv | grep ROS
+
+# Test network connectivity
+ping <other_machine>
+```
+
+## Summary
+
+Effective testing and debugging requires:
+
+✅ **Unit tests** for individual components
+✅ **Integration tests** for component interactions
+✅ **E2E tests** for complete workflows
+✅ **ROS 2 tools** (rqt, RViz, bags)
+✅ **Systematic diagnosis** following checklist
+✅ **Performance profiling** to identify bottlenecks
+
+## Next Steps
+
+Continue to [Optional Extensions](./optional-extensions.mdx) for advanced features!
+
+---
+
+## References
+
+[^1]: ROS 2 Testing Guide. (2024). *Testing ROS 2 Nodes*. https://docs.ros.org/en/humble/Tutorials/Intermediate/Testing/Testing-Main.html
+
+[^2]: Debugging ROS 2. (2024). *ROS 2 Design Documentation*. https://design.ros2.org/articles/debugging.html

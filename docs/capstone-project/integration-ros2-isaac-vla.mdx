@@ -1,0 +1,649 @@
+# Integration: ROS 2 + Isaac + VLA
+
+This section provides deep technical guidance on integrating ROS 2, NVIDIA Isaac (Sim + ROS), and Vision-Language-Action components into a cohesive autonomous system.
+
+## System Architecture
+
+### Component Interaction Diagram
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Isaac Sim Environment                     │
+│  - Humanoid robot (physics-based)                            │
+│  - Sensors (camera, IMU, depth)                              │
+│  - Objects and environment                                   │
+└────────────────────┬─────────────────────────────────────────┘
+                     │ ROS 2 Bridge (topics, TF)
+                     ↓
+┌──────────────────────────────────────────────────────────────┐
+│                    ROS 2 Middleware                          │
+│  DDS (Data Distribution Service)                             │
+└──────────────────────┬────────────┬─────────────┬────────────┘
+                       ↓            ↓             ↓
+        ┌──────────────┴──┐  ┌─────┴─────┐  ┌───┴───────┐
+        │ Voice Control   │  │ Perception│  │  Planning │
+        │  (Whisper)      │  │ (Isaac ROS│  │  (GPT-4)  │
+        └────────┬────────┘  └─────┬─────┘  └────┬──────┘
+                 │                 │              │
+                 └─────────┬───────┴──────────────┘
+                           ↓
+                  ┌────────────────┐
+                  │ Multi-Modal    │
+                  │ Fusion Node    │
+                  └────────┬───────┘
+                           ↓
+                  ┌────────────────┐
+                  │ Action         │
+                  │ Coordinator    │
+                  └────────┬───────┘
+                           ↓
+            ┌──────────────┴──────────────┐
+            ↓                             ↓
+      ┌─────────────┐             ┌──────────────┐
+      │ Navigation  │             │ Manipulation │
+      │   (Nav2)    │             │  (MoveIt2)   │
+      └─────────────┘             └──────────────┘
+```
+
+## ROS 2 Message Flow
+
+### Topic Architecture
+
+| Topic | Type | Publisher | Subscriber | Purpose |
+|-------|------|-----------|------------|---------|
+| `/voice_command` | String | whisper_node | llm_planner | Voice input |
+| `/task_plan` | TaskPlan | llm_planner | action_coordinator | High-level plan |
+| `/camera/image_raw` | Image | isaac_sim / camera | object_detector | RGB camera |
+| `/camera/depth` | Image | isaac_sim | depth_processor | Depth image |
+| `/detections` | Detection2DArray | object_detector | visual_grounding | Object bboxes |
+| `/grounded_objects` | ObjectArray | visual_grounding | action_coordinator | Identified objects |
+| `/cmd_vel` | Twist | navigator | isaac_sim / robot | Velocity commands |
+| `/joint_commands` | JointTrajectory | manipulator | isaac_sim / robot | Manipulation |
+| `/odom` | Odometry | isaac_sim | navigator | Robot odometry |
+| `/tf` | TFMessage | isaac_sim | All nodes | Transforms |
+
+### Custom Messages
+
+Define custom message types for complex data:
+
+**TaskPlan.msg**:
+```
+Header header
+ActionStep[] steps
+---
+# ActionStep.msg
+string action_type
+string target_object
+geometry_msgs/Pose target_pose
+string[] parameters
+float32 expected_duration
+```
+
+**GroundedObject.msg**:
+```
+string object_id
+string description
+vision_msgs/BoundingBox2D bbox
+geometry_msgs/Point position_3d
+float32 confidence
+string[] attributes
+```
+
+## Multi-Modal Fusion
+
+### Fusion Node Architecture
+
+The fusion node combines voice, vision, and context:
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from sensor_msgs.msg import Image
+from vision_msgs.msg import Detection2DArray
+from custom_msgs.msg import GroundedObject, ObjectArray
+import openai
+import json
+
+class MultiModalFusionNode(Node):
+    def __init__(self):
+        super().__init__('multimodal_fusion')
+
+        # State
+        self.latest_command = None
+        self.latest_detections = []
+        self.latest_image = None
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String, '/voice_command', self.command_callback, 10
+        )
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10
+        )
+        self.det_sub = self.create_subscription(
+            Detection2DArray, '/detections', self.detections_callback, 10
+        )
+
+        # Publisher
+        self.grounded_pub = self.create_publisher(
+            ObjectArray, '/grounded_objects', 10
+        )
+
+        self.get_logger().info('Multi-Modal Fusion Node ready')
+
+    def command_callback(self, msg):
+        self.latest_command = msg.data
+
+        # Trigger fusion when command arrives
+        if self.latest_image is not None and self.latest_detections:
+            self.fuse_and_ground()
+
+    def image_callback(self, msg):
+        self.latest_image = msg
+
+    def detections_callback(self, msg):
+        self.latest_detections = msg.detections
+
+    def fuse_and_ground(self):
+        """
+        Fuse language command with visual detections
+        Use GPT-4V to resolve references
+        """
+
+        # Extract object references from command
+        references = self.extract_references(self.latest_command)
+
+        # Ground references in visual scene
+        grounded = []
+        for ref in references:
+            obj = self.ground_reference(ref, self.latest_detections)
+            if obj:
+                grounded.append(obj)
+
+        # Publish grounded objects
+        obj_array = ObjectArray()
+        obj_array.objects = grounded
+        self.grounded_pub.publish(obj_array)
+
+    def extract_references(self, command):
+        """Extract object references using LLM"""
+
+        prompt = f"""
+        Extract object references from this command: "{command}"
+
+        Output JSON list of objects mentioned:
+        ["object1", "object2", ...]
+
+        Examples:
+        "Pick up the red cup" -> ["red cup"]
+        "Go to the table" -> ["table"]
+        "Bring me a bottle of water" -> ["bottle", "water"]
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+
+        return json.loads(response.choices[0].message.content)
+
+    def ground_reference(self, ref_description, detections):
+        """
+        Ground language reference to visual detection
+        Use CLIP similarity scoring
+        """
+
+        # Simplified: match by YOLO class names
+        # In full implementation, use CLIP embeddings
+
+        best_match = None
+        best_score = 0.0
+
+        for detection in detections:
+            # Compute similarity (simplified)
+            score = self.compute_similarity(ref_description, detection)
+
+            if score > best_score:
+                best_score = score
+                best_match = detection
+
+        if best_score > 0.5:  # Threshold
+            grounded_obj = GroundedObject()
+            grounded_obj.description = ref_description
+            grounded_obj.bbox = best_match.bbox
+            grounded_obj.confidence = best_score
+            return grounded_obj
+
+        return None
+
+    def compute_similarity(self, text, detection):
+        """Compute text-detection similarity (simplified)"""
+        # In real implementation: use CLIP embeddings
+        # For now, simple string matching
+        class_name = detection.results[0].id if detection.results else ""
+        return 1.0 if text.lower() in class_name.lower() else 0.0
+
+def main():
+    rclpy.init()
+    node = MultiModalFusionNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Action Coordination
+
+### State Machine for Task Execution
+
+Coordinate navigation and manipulation:
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient
+from std_msgs.msg import String
+from nav2_msgs.action import NavigateToPose
+from control_msgs.action import FollowJointTrajectory
+from custom_msgs.msg import ObjectArray
+import json
+from enum import Enum
+
+class RobotState(Enum):
+    IDLE = 0
+    PLANNING = 1
+    NAVIGATING = 2
+    MANIPULATING = 3
+    WAITING = 4
+    ERROR = 5
+
+class ActionCoordinatorNode(Node):
+    def __init__(self):
+        super().__init__('action_coordinator')
+
+        # State
+        self.state = RobotState.IDLE
+        self.current_plan = None
+        self.current_step = 0
+        self.grounded_objects = {}
+
+        # Subscribers
+        self.plan_sub = self.create_subscription(
+            String, '/task_plan', self.plan_callback, 10
+        )
+        self.obj_sub = self.create_subscription(
+            ObjectArray, '/grounded_objects', self.objects_callback, 10
+        )
+
+        # Action clients
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.manip_client = ActionClient(self, FollowJointTrajectory, 'arm_controller/follow_joint_trajectory')
+
+        # Timer for state machine
+        self.timer = self.create_timer(0.1, self.state_machine_update)
+
+        self.get_logger().info('Action Coordinator ready')
+
+    def plan_callback(self, msg):
+        self.current_plan = json.loads(msg.data)
+        self.current_step = 0
+        self.state = RobotState.PLANNING
+
+        self.get_logger().info(f'Received plan with {len(self.current_plan["steps"])} steps')
+
+    def objects_callback(self, msg):
+        for obj in msg.objects:
+            self.grounded_objects[obj.description] = obj
+
+    def state_machine_update(self):
+        """Execute state machine"""
+
+        if self.state == RobotState.IDLE:
+            pass  # Wait for plan
+
+        elif self.state == RobotState.PLANNING:
+            # Start executing plan
+            if self.current_plan and len(self.current_plan['steps']) > 0:
+                self.execute_next_step()
+
+        elif self.state == RobotState.NAVIGATING:
+            # Check if navigation complete
+            if self.check_nav_complete():
+                self.on_step_complete()
+
+        elif self.state == RobotState.MANIPULATING:
+            # Check if manipulation complete
+            if self.check_manip_complete():
+                self.on_step_complete()
+
+        elif self.state == RobotState.ERROR:
+            self.get_logger().error('System in error state, awaiting recovery')
+
+    def execute_next_step(self):
+        """Execute current step in plan"""
+
+        if self.current_step >= len(self.current_plan['steps']):
+            self.get_logger().info('Plan execution complete!')
+            self.state = RobotState.IDLE
+            return
+
+        step = self.current_plan['steps'][self.current_step]
+        action = step['action']
+        params = step.get('params', {})
+
+        self.get_logger().info(f'Executing step {self.current_step + 1}: {action}')
+
+        if action == 'navigate':
+            self.execute_navigate(params)
+
+        elif action == 'grasp':
+            self.execute_grasp(params)
+
+        elif action == 'place':
+            self.execute_place(params)
+
+        elif action == 'wait':
+            duration = params.get('duration', 1.0)
+            self.execute_wait(duration)
+
+        else:
+            self.get_logger().warn(f'Unknown action: {action}')
+            self.current_step += 1
+
+    def execute_navigate(self, params):
+        """Send navigation goal to Nav2"""
+
+        location = params.get('location', None)
+        if not location:
+            self.get_logger().error('Navigate action missing location parameter')
+            self.state = RobotState.ERROR
+            return
+
+        # Convert location name to coordinates (from map)
+        coords = self.get_location_coords(location)
+
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.pose.pose.position.x = coords[0]
+        goal_msg.pose.pose.position.y = coords[1]
+        goal_msg.pose.pose.orientation.w = 1.0
+
+        self.nav_client.wait_for_server()
+        self.nav_future = self.nav_client.send_goal_async(goal_msg)
+
+        self.state = RobotState.NAVIGATING
+
+    def execute_grasp(self, params):
+        """Execute grasping manipulation"""
+
+        obj_name = params.get('object', None)
+        if not obj_name or obj_name not in self.grounded_objects:
+            self.get_logger().error(f'Object "{obj_name}" not found in grounded objects')
+            self.state = RobotState.ERROR
+            return
+
+        obj = self.grounded_objects[obj_name]
+
+        # Compute grasp pose from object position
+        grasp_pose = self.compute_grasp_pose(obj)
+
+        # Send to manipulation controller
+        # (MoveIt2 integration)
+        self.execute_manipulation(grasp_pose, is_grasp=True)
+
+        self.state = RobotState.MANIPULATING
+
+    def execute_place(self, params):
+        """Execute placing manipulation"""
+
+        location = params.get('location', None)
+        if not location:
+            self.get_logger().error('Place action missing location')
+            self.state = RobotState.ERROR
+            return
+
+        place_coords = self.get_location_coords(location)
+        place_pose = self.compute_place_pose(place_coords)
+
+        self.execute_manipulation(place_pose, is_grasp=False)
+
+        self.state = RobotState.MANIPULATING
+
+    def on_step_complete(self):
+        """Called when step execution completes"""
+        self.current_step += 1
+        self.state = RobotState.PLANNING
+
+    def check_nav_complete(self):
+        """Check if navigation action completed"""
+        if hasattr(self, 'nav_future'):
+            return self.nav_future.done()
+        return False
+
+    def check_manip_complete(self):
+        """Check if manipulation completed"""
+        if hasattr(self, 'manip_future'):
+            return self.manip_future.done()
+        return False
+
+    def get_location_coords(self, location_name):
+        """Map location names to coordinates"""
+        locations = {
+            'kitchen': (2.0, 0.0),
+            'living_room': (0.0, 0.0),
+            'bedroom': (-2.0, 2.0),
+        }
+        return locations.get(location_name, (0.0, 0.0))
+
+def main():
+    rclpy.init()
+    node = ActionCoordinatorNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Isaac Sim Integration
+
+### ROS 2 Bridge Configuration
+
+In Isaac Sim, enable the ROS 2 bridge for all sensors:
+
+```python
+# In Isaac Sim Python script
+from omni.isaac.ros2_bridge import ROS2Bridge
+
+# Enable bridge
+ros_bridge = ROS2Bridge()
+
+# Camera
+ros_bridge.create_camera_sensor(
+    prim_path="/World/Camera",
+    frequency=30,
+    topic_name="/camera/image_raw"
+)
+
+# IMU
+ros_bridge.create_imu_sensor(
+    prim_path="/World/Humanoid/imu",
+    frequency=100,
+    topic_name="/imu/data"
+)
+
+# Joint states
+ros_bridge.create_joint_state_publisher(
+    prim_path="/World/Humanoid",
+    topic_name="/joint_states"
+)
+
+# Odometry
+ros_bridge.create_odometry_publisher(
+    prim_path="/World/Humanoid",
+    topic_name="/odom",
+    frame_id="odom"
+)
+```
+
+### TF Tree Management
+
+Ensure proper TF transforms:
+
+```
+map
+ └─ odom
+     └─ base_link
+         ├─ camera_link
+         ├─ imu_link
+         └─ arm_base_link
+             └─ ... (arm joints)
+```
+
+Publish TF from Isaac Sim or use `robot_state_publisher`:
+
+```bash
+ros2 run robot_state_publisher robot_state_publisher \
+  --ros-args -p robot_description:=$(cat humanoid_robot.urdf)
+```
+
+## Performance Optimization
+
+### 1. Message Throttling
+
+Reduce message rates for non-critical data:
+
+```python
+# Throttle images to 10 Hz for processing
+from topic_tools.srv import MuxSelect
+
+self.throttled_sub = self.create_subscription(
+    Image,
+    '/camera/image_raw/throttled',  # Use throttled topic
+    self.image_callback,
+    10
+)
+```
+
+```bash
+# Launch throttle node
+ros2 run topic_tools throttle messages /camera/image_raw 10 /camera/image_raw/throttled
+```
+
+### 2. QoS Settings
+
+Configure Quality of Service for reliability vs. latency:
+
+```python
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
+# Best-effort for high-frequency data (images)
+image_qos = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1
+)
+
+self.image_sub = self.create_subscription(
+    Image, '/camera/image_raw', self.callback, image_qos
+)
+```
+
+### 3. GPU Utilization
+
+Ensure vision processing uses GPU:
+
+```python
+import torch
+
+# Check GPU availability
+device = "cuda" if torch.cuda.is_available() else "cpu"
+self.model = self.model.to(device)
+
+# Process on GPU
+with torch.no_grad():
+    outputs = self.model(inputs.to(device))
+```
+
+## Error Handling
+
+### Timeout Management
+
+Handle action timeouts gracefully:
+
+```python
+import rclpy.time
+
+def execute_navigate_with_timeout(self, params, timeout_sec=30.0):
+    start_time = self.get_clock().now()
+
+    # Send goal
+    future = self.nav_client.send_goal_async(goal_msg)
+
+    while rclpy.ok():
+        rclpy.spin_once(self, timeout_sec=0.1)
+
+        if future.done():
+            return True  # Success
+
+        if (self.get_clock().now() - start_time).nanoseconds / 1e9 > timeout_sec:
+            self.get_logger().error('Navigation timeout!')
+            self.nav_client.cancel_goal()
+            return False  # Timeout
+
+    return False
+```
+
+### Recovery Behaviors
+
+Implement recovery when actions fail:
+
+```python
+def on_action_failure(self, action_type):
+    """Execute recovery behavior"""
+
+    if action_type == 'navigate':
+        # Try clearing costmaps
+        self.clear_costmaps()
+        # Retry navigation
+        return self.retry_current_step()
+
+    elif action_type == 'grasp':
+        # Try re-detecting object
+        self.request_object_redetection()
+        return self.retry_current_step()
+
+    else:
+        # General failure: ask user for help
+        self.request_user_intervention()
+        return False
+```
+
+## Summary
+
+Integration requires:
+
+✅ **Proper ROS 2 topic architecture** with custom messages
+✅ **Multi-modal fusion** combining voice, vision, and context
+✅ **Action coordination** with state machine for sequencing
+✅ **Isaac Sim ROS 2 bridge** for sensor and actuator data
+✅ **Performance optimization** (QoS, throttling, GPU usage)
+✅ **Robust error handling** with timeouts and recovery
+
+## Next Steps
+
+Continue to [Testing & Troubleshooting](./testing-troubleshooting.mdx) for comprehensive debugging strategies!
+
+---
+
+## References
+
+[^1]: ROS 2 Design. (2024). *Quality of Service Settings*. https://design.ros2.org/articles/qos.html
+
+[^2]: NVIDIA. (2024). *Isaac ROS Developer Guide*. https://nvidia-isaac-ros.github.io/
+
+[^3]: Nav2 Documentation. (2024). *Writing a New Behavior Plugin*. https://navigation.ros.org/
+
+[^4]: MoveIt 2. (2024). *MoveIt 2 Tutorials*. https://moveit.picknik.ai/main/

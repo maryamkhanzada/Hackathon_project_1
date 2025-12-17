@@ -1,0 +1,176 @@
+# Module 1: The Robotic Nervous System (ROS 2)
+
+Welcome to Module 1! In this module, you'll learn **ROS 2 (Robot Operating System 2)**, the communication middleware that serves as the "nervous system" for modern robots. Just as your nervous system coordinates signals between your brain, sensors, and muscles, ROS 2 coordinates communication between a robot's perception, decision-making, and actuation systems.
+
+## What is ROS 2?
+
+**ROS 2** is an open-source robotics middleware that provides:
+
+- **Communication Infrastructure**: Standardized messaging between robot components
+- **Development Tools**: Libraries, build systems, and debugging utilities
+- **Hardware Abstraction**: Unified interfaces for sensors, actuators, and platforms
+- **Community Ecosystem**: Thousands of packages for perception, navigation, manipulation, and more
+
+ROS 2 is the successor to ROS 1, redesigned from the ground up to address real-world production requirements including real-time performance, security, multi-robot systems, and embedded platforms[^1].
+
+### Why ROS 2 for Humanoid Robotics?
+
+Humanoid robots are complex systems with:
+- **Dozens of sensors**: Cameras, LiDAR, IMUs, force/torque sensors, encoders
+- **Many actuators**: 20-40+ motors for bipedal locomotion and manipulation
+- **Multiple compute nodes**: Edge processors for real-time control, GPUs for perception, cloud for planning
+- **Distributed processing**: Components running on different computers/processors
+
+ROS 2 provides the communication backbone to coordinate all these components reliably and efficiently[^2].
+
+## Module Overview
+
+This module covers the essential foundations you need to develop ROS 2 applications for humanoid robots:
+
+### 1. [ROS 2 Architecture](./ros2-architecture.mdx)
+Understand the core concepts that make ROS 2 work:
+- **Nodes**: Independent processes that perform specific tasks
+- **Topics**: Asynchronous pub/sub communication for sensor data and commands
+- **Services**: Synchronous request/response for coordination
+- **Actions**: Long-running tasks with feedback and preemption
+
+### 2. [Python Integration with ROS 2 (rclpy)](./rclpy-integration.mdx)
+Learn to write ROS 2 applications in Python:
+- Setting up rclpy for rapid development
+- Creating publishers and subscribers
+- Implementing services and action servers/clients
+- Working with ROS 2 parameters and timers
+
+### 3. [URDF for Humanoids](./urdf-humanoids.mdx)
+Model your humanoid robot using URDF:
+- Understanding links, joints, and kinematic chains
+- Defining collision and visual geometries
+- Specifying joint limits, inertias, and dynamics
+- Loading and visualizing URDF models in RViz2
+
+### 4. [ROS 2 Lab Exercises](./ros2-exercises.mdx)
+Hands-on practice with:
+- Installing ROS 2 Humble on Ubuntu 22.04
+- Running your first talker/listener nodes
+- Exploring topics, services, and parameters with command-line tools
+- Visualizing robot models and sensor data in RViz2
+
+### 5. [ROS 2 Package Development Project](./ros2-package-project.mdx)
+Build a complete ROS 2 package:
+- Package structure and CMakeLists.txt / package.xml
+- Creating custom message and service definitions
+- Writing launch files for multi-node systems
+- Testing and debugging ROS 2 applications
+
+## Learning Outcomes
+
+By the end of this module, you will be able to:
+
+✅ **Install and configure** a ROS 2 development environment
+✅ **Explain** the roles of nodes, topics, services, and actions
+✅ **Write** Python ROS 2 nodes using rclpy
+✅ **Create** URDF models for robot description
+✅ **Build** ROS 2 packages with custom messages
+✅ **Launch** multi-node systems with launch files
+✅ **Debug** ROS 2 applications using command-line and GUI tools
+✅ **Visualize** robot models and sensor data in RViz2
+
+## Prerequisites
+
+Before starting this module:
+
+- **Operating System**: Ubuntu 22.04 LTS (recommended) or Ubuntu 20.04 LTS
+- **Programming**: Basic Python knowledge (functions, classes, imports)
+- **Linux**: Familiarity with terminal, bash commands, and package management
+- **Hardware**: See [Hardware & Software Requirements](/docs/appendices/hardware-software)
+
+:::tip Development Environment Options
+
+You can follow this module using:
+- **Native Ubuntu**: Best performance, direct hardware access
+- **Docker Container**: Isolated, reproducible environment (recommended for beginners)
+- **WSL2 on Windows**: Good balance for Windows users
+- **Virtual Machine**: Works but may have limited GPU access
+
+See [Lab Setup Tips](/docs/appendices/lab-setup-tips) for detailed setup guidance.
+
+:::
+
+## ROS 2 vs ROS 1: Key Differences
+
+If you're familiar with ROS 1, here are the major changes in ROS 2:
+
+| Feature | ROS 1 | ROS 2 |
+|---------|-------|-------|
+| **Middleware** | Custom TCPROS | DDS (Data Distribution Service) |
+| **Real-time** | Limited support | Built-in real-time capabilities |
+| **Security** | No encryption | DDS security with encryption/authentication |
+| **Multi-robot** | Requires network configuration | Native multi-robot support |
+| **Build System** | catkin | colcon + ament |
+| **Python Version** | Python 2 (ROS 1) / Python 3 (ROS 1 Noetic) | Python 3 only |
+| **Lifecycle Nodes** | Not available | Managed node lifecycle |
+| **Quality of Service** | Best effort only | Configurable QoS policies |
+
+For this course, we focus exclusively on **ROS 2 Humble Hawksbill (LTS)**, the latest long-term support release[^3].
+
+## Industry Adoption
+
+ROS 2 is rapidly becoming the industry standard:
+
+- **Autonomous Vehicles**: Tier IV's Autoware, Apex.AI for self-driving cars
+- **Industrial Robots**: Universal Robots, KUKA, ABB adopting ROS 2
+- **Humanoids**: Boston Dynamics, Agility Robotics, Tesla using ROS 2 internally
+- **Drones & UAVs**: PX4 autopilot with ROS 2 integration
+- **Space**: NASA's VIPER lunar rover runs on ROS 2
+- **Service Robots**: Delivery robots, cleaning robots, warehouse automation
+
+Major robotics companies are investing heavily in ROS 2 because it provides production-grade reliability and performance[^4].
+
+## Module Structure
+
+This module follows a progressive learning path:
+
+1. **Conceptual Understanding** → Learn what ROS 2 components do and why
+2. **Hands-On Practice** → Write code, run examples, see results
+3. **System Integration** → Combine components into working systems
+4. **Project Application** → Build a complete ROS 2 package
+
+Each section includes:
+- 📖 **Theory**: Core concepts explained with diagrams
+- 💻 **Code Examples**: Copy-paste ready, tested code
+- 🔬 **Lab Exercises**: Hands-on practice with step-by-step instructions
+- 🎯 **Challenges**: Optional advanced exercises
+
+## Getting Help
+
+As you work through this module:
+
+- **Check the [Glossary](/docs/appendices/glossary)** for ROS 2 terminology
+- **Consult [Lab Setup Tips](/docs/appendices/lab-setup-tips)** for troubleshooting
+- **Review [Recommended Reading](/docs/appendices/recommended-reading)** for deeper dives
+- **Explore official ROS 2 documentation**: [https://docs.ros.org/en/humble/](https://docs.ros.org/en/humble/)
+
+:::info ROS 2 Documentation
+
+The official ROS 2 documentation is comprehensive and constantly updated. Bookmark it as your primary reference:
+- **Tutorials**: https://docs.ros.org/en/humble/Tutorials.html
+- **Concepts**: https://docs.ros.org/en/humble/Concepts.html
+- **API Reference**: https://docs.ros2.org/humble/api/
+
+:::
+
+## Ready to Start?
+
+Let's begin with [ROS 2 Architecture](./ros2-architecture.mdx) to understand the foundational concepts that power modern robotics!
+
+---
+
+## References
+
+[^1]: Maruyama, Y., Kato, S., & Azumi, T. (2016). Exploring the performance of ROS2. *Proceedings of the International Conference on Embedded Software (EMSOFT)*, 1-10.
+
+[^2]: Macenski, S., Foote, T., Gerkey, B., Lalancette, C., & Woodall, W. (2022). Robot Operating System 2: Design, architecture, and uses in the wild. *Science Robotics*, 7(66).
+
+[^3]: Open Robotics. (2022). ROS 2 Humble Hawksbill Documentation. Retrieved from https://docs.ros.org/en/humble/
+
+[^4]: Robotics Business Review. (2023). State of ROS 2 Adoption in Industry. Industry Report.

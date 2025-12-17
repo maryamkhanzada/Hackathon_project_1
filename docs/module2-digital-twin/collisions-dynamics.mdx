@@ -1,0 +1,624 @@
+# Collisions & Dynamics
+
+Properly configured collision geometries and physical properties are essential for stable simulation. This section covers how to set mass, inertia, friction, and contact parameters for realistic humanoid robot behavior.
+
+## The Importance of Accurate Dynamics
+
+Incorrect physics parameters lead to:
+
+- **Unstable walking**: Robot falls or jitters
+- **Unrealistic behavior**: Arms float, legs sink through floor
+- **Poor sim-to-real transfer**: Controllers work in simulation but fail on hardware
+- **Slow simulation**: Over-complex collision meshes waste CPU
+
+The goal: **Minimal complexity with maximum physical accuracy**.
+
+## Collision Geometry Optimization
+
+### Visual vs. Collision Meshes
+
+Robots use **two separate mesh sets**[^1]:
+
+**Visual Meshes**:
+- High polygon count (10K-100K+ triangles)
+- Detailed appearance for rendering
+- Only affect graphics, not physics
+
+**Collision Meshes**:
+- Low polygon count (under 1K triangles)
+- Simplified shapes (boxes, cylinders, convex hulls)
+- Directly impact physics performance
+
+:::tip Performance Rule
+
+Collision mesh complexity is the **single biggest factor** in physics simulation speed. Aim for under 100 triangles per collision body.
+
+:::
+
+### Choosing Collision Shapes
+
+**Hierarchy of Performance** (fastest to slowest):
+
+1. **Sphere** (10-100x faster than mesh)
+2. **Box** (aligned with axes)
+3. **Cylinder** / **Capsule**
+4. **Convex Hull** (simplified mesh)
+5. **Compound Shapes** (multiple primitives combined)
+6. **Concave Mesh** (slowest, avoid if possible)
+
+#### Example: Humanoid Torso
+
+**Bad** (concave mesh, 5000 triangles):
+```xml
+<collision name="torso_collision">
+  <geometry>
+    <mesh>
+      <uri>model://humanoid/meshes/torso_detailed.dae</uri>
+    </mesh>
+  </geometry>
+</collision>
+```
+
+**Good** (box primitive):
+```xml
+<collision name="torso_collision">
+  <geometry>
+    <box>
+      <size>0.3 0.2 0.5</size>  <!-- width, depth, height in meters -->
+    </box>
+  </geometry>
+  <pose>0 0 0 0 0 0</pose>  <!-- Offset from link origin if needed -->
+</collision>
+```
+
+**Best** (compound shape for accuracy):
+```xml
+<!-- Upper torso -->
+<collision name="upper_torso">
+  <geometry>
+    <box><size>0.35 0.25 0.25</size></box>
+  </geometry>
+  <pose>0 0 0.125 0 0 0</pose>
+</collision>
+
+<!-- Lower torso -->
+<collision name="lower_torso">
+  <geometry>
+    <box><size>0.30 0.20 0.25</size></box>
+  </geometry>
+  <pose>0 0 -0.125 0 0 0</pose>
+</collision>
+```
+
+### Capsule Shapes for Limbs
+
+**Capsules** (cylinders with rounded ends) are ideal for arms and legs:
+
+**Gazebo SDF**:
+```xml
+<collision name="upper_arm_collision">
+  <geometry>
+    <capsule>
+      <radius>0.04</radius>  <!-- 4cm arm radius -->
+      <length>0.28</length>  <!-- 28cm arm length -->
+    </capsule>
+  </geometry>
+  <pose>0 0 0.14 0 1.5708 0</pose>  <!-- Rotate to align with link -->
+</collision>
+```
+
+**Unity** (using CapsuleCollider):
+```csharp
+CapsuleCollider col = gameObject.AddComponent<CapsuleCollider>();
+col.radius = 0.04f;  // meters
+col.height = 0.28f;
+col.direction = 1;  // 0=X, 1=Y, 2=Z axis
+```
+
+**Benefits**:
+- Smooth rolling contacts (no edge catches)
+- Fast collision detection
+- Realistic limb interactions
+
+### Convex Decomposition
+
+For complex shapes that must be concave (e.g., hands), use **convex decomposition**[^2]:
+
+```bash
+# Using V-HACD (Volumetric Hierarchical Approximate Convex Decomposition)
+testVHACD --input hand_mesh.obj \
+          --output hand_convex.obj \
+          --resolution 100000 \
+          --maxNumVerticesPerCH 64 \
+          --minVolumePerCH 0.0001
+```
+
+This splits a concave mesh into multiple convex pieces, enabling fast physics.
+
+**In URDF**:
+```xml
+<collision>
+  <geometry>
+    <mesh>
+      <uri>package://humanoid/meshes/hand_convex.obj</uri>
+    </mesh>
+  </geometry>
+</collision>
+```
+
+## Mass and Inertia Properties
+
+### Why Accurate Mass Matters
+
+Physics engines solve:
+```
+F = ma  →  a = F/m
+```
+
+**If mass is wrong**:
+- Too light: Robot flies when hit, motors accelerate unrealistically
+- Too heavy: Robot sinks through floor, joints can't move
+- Ratios wrong: Light hand on heavy arm causes numerical instability
+
+### Measuring Real Robot Mass
+
+**For hardware**:
+1. **Weigh each link**: Use scale before assembly
+2. **CAD export**: SolidWorks/Fusion 360 compute mass from material density
+3. **Manufacturer specs**: Check datasheets for motor weights
+
+**Typical humanoid masses**:
+- **Whole robot**: 50-90 kg (adult human-sized)
+- **Torso**: 15-25 kg (30-40% of total)
+- **Leg**: 5-8 kg each
+- **Arm**: 2-4 kg each
+- **Head**: 2-3 kg
+- **Hand/foot**: 0.5-1.5 kg each
+
+### Inertia Tensors
+
+**Moment of inertia** describes rotational resistance:
+
+```xml
+<inertial>
+  <mass value="5.0"/>  <!-- kg -->
+  <inertia ixx="0.0347" ixy="0.0"    ixz="0.0"
+                        iyy="0.0458" iyz="0.0"
+                                     izz="0.0347"/>
+</inertial>
+```
+
+**3x3 Inertia Matrix**:
+```
+I = | Ixx  Ixy  Ixz |
+    | Ixy  Iyy  Iyz |
+    | Ixz  Iyz  Izz |
+```
+
+- **Diagonal terms** (Ixx, Iyy, Izz): Resistance to rotation around each axis
+- **Off-diagonal terms** (Ixy, etc.): Products of inertia (usually small for symmetric objects)
+
+### Computing Inertia for Simple Shapes
+
+**Solid Cylinder** (radius r, height h, mass m):
+```python
+def cylinder_inertia(mass, radius, height):
+    Ixx = Iyy = (1/12) * mass * (3*radius**2 + height**2)
+    Izz = 0.5 * mass * radius**2
+    return {'ixx': Ixx, 'iyy': Iyy, 'izz': Izz}
+
+# Example: 5kg cylinder, r=0.05m, h=0.3m
+inertia = cylinder_inertia(5.0, 0.05, 0.3)
+# Result: {'ixx': 0.0391, 'iyy': 0.0391, 'izz': 0.00625}
+```
+
+**Solid Box** (width w, depth d, height h, mass m):
+```python
+def box_inertia(mass, width, depth, height):
+    Ixx = (1/12) * mass * (depth**2 + height**2)
+    Iyy = (1/12) * mass * (width**2 + height**2)
+    Izz = (1/12) * mass * (width**2 + depth**2)
+    return {'ixx': Ixx, 'iyy': Iyy, 'izz': Izz}
+```
+
+**Solid Sphere** (radius r, mass m):
+```python
+def sphere_inertia(mass, radius):
+    I = (2/5) * mass * radius**2
+    return {'ixx': I, 'iyy': I, 'izz': I}
+```
+
+### Using CAD for Complex Shapes
+
+**In SolidWorks/Fusion 360**:
+1. Assign material (e.g., Aluminum 6061, density 2700 kg/m³)
+2. Right-click part → **Mass Properties**
+3. Copy inertia tensor values
+4. Note: CAD uses different axes, may need rotation
+
+**Exporting to URDF** (with correct axes):
+```xml
+<inertial>
+  <origin xyz="0.01 0 0.05" rpy="0 0 0"/>  <!-- Center of mass offset -->
+  <mass value="3.456"/>
+  <inertia ixx="0.0123" ixy="0.0001" ixz="-0.0002"
+                        iyy="0.0145" iyz="0.0"
+                                     izz="0.0098"/>
+</inertial>
+```
+
+### Inertia Validation
+
+**Physical Test** (pendulum method):
+1. Hang link from pivot point
+2. Measure swing period T
+3. Compute inertia: `I = (m * g * d * T²) / (4π²)`
+
+Where:
+- m = mass, g = 9.81 m/s², d = distance from pivot to COM, T = period
+
+**Simulation Test**:
+```python
+# Drop robot from 1m height in simulation and real world
+# Compare impact time and bounce - should match within 10%
+```
+
+## Joint Dynamics
+
+### Joint Types and Limits
+
+**Revolute Joint** (hinge):
+```xml
+<joint name="knee" type="revolute">
+  <parent link="thigh"/>
+  <child link="shin"/>
+  <axis xyz="0 1 0"/>  <!-- Rotation axis (Y in this case) -->
+
+  <!-- Mechanical limits -->
+  <limit>
+    <lower>0.0</lower>       <!-- Fully extended (radians) -->
+    <upper>2.618</upper>     <!-- 150 degrees max flexion -->
+    <effort>100.0</effort>   <!-- Max torque (N⋅m) -->
+    <velocity>6.28</velocity> <!-- Max speed (rad/s) -->
+  </limit>
+
+  <!-- Joint friction and damping -->
+  <dynamics>
+    <damping>0.7</damping>   <!-- N⋅m⋅s/rad -->
+    <friction>0.5</friction> <!-- N⋅m -->
+  </dynamics>
+</joint>
+```
+
+**Prismatic Joint** (linear):
+```xml
+<joint name="finger_slider" type="prismatic">
+  <axis xyz="1 0 0"/>
+  <limit>
+    <lower>0.0</lower>
+    <upper>0.08</upper>      <!-- 8cm max extension -->
+    <effort>50.0</effort>     <!-- Max force (N) -->
+    <velocity>0.5</velocity>  <!-- Max speed (m/s) -->
+  </limit>
+</joint>
+```
+
+### Joint Friction and Damping
+
+**Damping** (velocity-dependent resistance):
+```
+τ_damping = -b * ω
+```
+Where b is damping coefficient, ω is angular velocity.
+
+**Friction** (constant resistance):
+```
+τ_friction = -f * sign(ω)
+```
+
+**Tuning Guidelines**:
+
+| Joint Type | Damping (N⋅m⋅s/rad) | Friction (N⋅m) |
+|------------|---------------------|----------------|
+| **Large joints** (hip, shoulder) | 1.0-5.0 | 0.5-2.0 |
+| **Medium joints** (elbow, knee) | 0.5-2.0 | 0.3-1.0 |
+| **Small joints** (wrist, ankle) | 0.1-0.5 | 0.1-0.3 |
+| **Fingers** | 0.01-0.1 | 0.01-0.05 |
+
+**Measuring from real robot**:
+```python
+# Apply constant torque τ, measure steady-state velocity ω
+# Friction ≈ τ (at very low ω)
+# Damping ≈ (τ - friction) / ω
+```
+
+### Joint Control Integration
+
+**Position Control** (PID):
+```xml
+<gazebo>
+  <plugin name="joint_controller" filename="libgazebo_ros_joint_state_publisher.so">
+    <joint_name>knee</joint_name>
+    <pid>1000.0 10.0 100.0</pid>  <!-- P, I, D gains -->
+  </plugin>
+</gazebo>
+```
+
+**Effort Control** (direct torque):
+```xml
+<transmission name="knee_trans">
+  <type>transmission_interface/SimpleTransmission</type>
+  <joint name="knee">
+    <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+  </joint>
+  <actuator name="knee_motor">
+    <mechanicalReduction>100</mechanicalReduction>  <!-- Gear ratio -->
+  </actuator>
+</transmission>
+```
+
+## Contact Dynamics
+
+### Surface Properties
+
+**Material Friction** (Coulomb model):
+
+```xml
+<gazebo reference="foot_link">
+  <surface>
+    <friction>
+      <ode>
+        <mu>0.9</mu>   <!-- Coefficient of friction (primary direction) -->
+        <mu2>0.9</mu2> <!-- Secondary direction (for anisotropic surfaces) -->
+        <fdir1>1 0 0</fdir1>  <!-- Primary friction direction -->
+
+        <!-- Advanced friction -->
+        <slip1>0.0</slip1>  <!-- Slip compliance (lower = more slip) -->
+        <slip2>0.0</slip2>
+      </ode>
+
+      <!-- Bullet physics engine (alternative) -->
+      <bullet>
+        <friction>0.9</friction>
+        <friction2>0.9</friction2>
+        <rolling_friction>0.01</rolling_friction>
+      </bullet>
+    </friction>
+
+    <!-- Contact stiffness and damping -->
+    <contact>
+      <ode>
+        <kp>10000000.0</kp>  <!-- Stiffness (N/m) -->
+        <kd>1000.0</kd>      <!-- Damping (N⋅s/m) -->
+        <max_vel>0.01</max_vel>  <!-- Max penetration velocity -->
+        <min_depth>0.001</min_depth>  <!-- Minimum contact depth -->
+      </ode>
+    </contact>
+
+    <!-- Soft contacts (optional, for compliant surfaces) -->
+    <soft_cfm>0.0</soft_cfm>  <!-- Constraint force mixing -->
+    <soft_erp>0.2</soft_erp>  <!-- Error reduction parameter -->
+  </surface>
+</gazebo>
+```
+
+### Friction Materials Reference
+
+| Surface Pair | μ (Coefficient) | Use Case |
+|--------------|-----------------|----------|
+| **Rubber on concrete** | 0.8-1.0 | Outdoor walking |
+| **Rubber on wood** | 0.6-0.8 | Indoor humanoid |
+| **Rubber on ice** | 0.15-0.25 | Slip testing |
+| **Metal on metal** | 0.15-0.25 | Sliding joints |
+| **Plastic on plastic** | 0.3-0.5 | Light grippers |
+| **Rubber on rubber** | 1.0-1.5 | High-traction feet |
+
+### Contact Stiffness Tuning
+
+**Too Soft** (kp too low, kd too low):
+- Symptoms: Robot sinks into floor, bouncy contacts
+- Fix: Increase kp to 1e7 or higher
+
+**Too Stiff** (kp too high):
+- Symptoms: Jitter, vibration, numerical instability
+- Fix: Decrease kp, increase solver iterations
+
+**Optimal Settings** (for concrete floor):
+```xml
+<kp>10000000.0</kp>  <!-- 10 million N/m -->
+<kd>1000.0</kd>      <!-- 1000 N⋅s/m -->
+```
+
+### Self-Collision
+
+Enable collision detection between robot's own links:
+
+```xml
+<gazebo>
+  <self_collide>true</self_collide>
+</gazebo>
+```
+
+**Disable specific pairs** (e.g., adjacent links that shouldn't collide):
+
+```xml
+<gazebo>
+  <disable_collision link1="thigh" link2="shin"/>
+</gazebo>
+```
+
+**Unity Self-Collision**:
+```csharp
+// Ignore collisions between adjacent limbs
+Physics.IgnoreCollision(
+    thighCollider,
+    shinCollider,
+    true  // ignore
+);
+```
+
+## Stability Troubleshooting
+
+### Common Issues and Fixes
+
+#### Issue 1: Robot Falls Through Floor
+
+**Causes**:
+- Contact stiffness too low
+- Timestep too large
+- Collision geometry missing on feet
+
+**Fixes**:
+```xml
+<!-- Increase contact stiffness -->
+<kp>10000000.0</kp>
+
+<!-- Reduce timestep -->
+<max_step_size>0.001</max_step_size>
+
+<!-- Verify foot collision exists -->
+<collision name="foot_collision">
+  <geometry>
+    <box><size>0.2 0.1 0.05</size></box>
+  </geometry>
+</collision>
+```
+
+#### Issue 2: Robot Jitters/Vibrates
+
+**Causes**:
+- Contact stiffness too high
+- Mass ratios too extreme (light part on heavy part)
+- Solver iterations too low
+
+**Fixes**:
+```xml
+<!-- Increase solver iterations -->
+<solver>
+  <iters>100</iters>  <!-- Was 50 -->
+</solver>
+
+<!-- Add damping to joints -->
+<dynamics>
+  <damping>1.0</damping>
+</dynamics>
+
+<!-- Check mass ratios (should be under 10:1) -->
+```
+
+#### Issue 3: Joints Drift/Don't Hold Position
+
+**Causes**:
+- PID gains too low
+- Damping too low
+- Gravity compensation missing
+
+**Fixes**:
+```python
+# Increase PID proportional gain
+pid.p_gain = 1000.0  # Was 100
+
+# Add gravity compensation
+torque = pid_output + mass * 9.81 * cos(joint_angle)
+```
+
+#### Issue 4: Slow Simulation
+
+**Causes**:
+- Too many collision triangles
+- Physics timestep too small
+- Too many active contacts
+
+**Fixes**:
+```bash
+# Profile to find bottleneck
+gz sim --verbose
+
+# Simplify collision meshes (use primitives)
+# Increase timestep if stability allows
+<max_step_size>0.002</max_step_size>  # Was 0.001
+```
+
+## Validation Against Reality
+
+### Benchmark Tests
+
+**1. Free Fall Test**:
+```python
+# Drop robot from 0.5m height
+# Measure time to impact and bounce height
+# Should match within 5% if mass/inertia correct
+```
+
+**2. Joint Swing Test**:
+```python
+# Apply constant torque to joint
+# Measure acceleration: α = τ / I
+# Verify inertia calculation
+```
+
+**3. Balance Test**:
+```python
+# Stand robot on one foot
+# Measure time to fall
+# Compare sim vs. real (validates friction, COM)
+```
+
+**4. Push Recovery**:
+```python
+# Apply external force to torso
+# Measure response (step, lean, fall)
+# Validates whole-body dynamics
+```
+
+### Data-Driven Parameter Tuning
+
+Use **system identification** to find parameters from real data:
+
+```python
+import numpy as np
+from scipy.optimize import minimize
+
+def simulate_motion(params):
+    mass, damping, friction = params
+    # Run simulation with these params
+    return sim_trajectory
+
+def error_function(params):
+    sim_traj = simulate_motion(params)
+    real_traj = load_real_robot_data()
+    return np.sum((sim_traj - real_traj)**2)
+
+# Optimize to match reality
+result = minimize(error_function, initial_guess=[5.0, 0.5, 0.3])
+optimal_params = result.x
+```
+
+## Summary
+
+You've learned how to configure physics for stable, realistic simulation:
+
+✅ **Collision Optimization**: Primitives over meshes, capsules for limbs
+✅ **Mass Properties**: Accurate mass, inertia tensors, COM offset
+✅ **Joint Dynamics**: Limits, damping, friction, control interfaces
+✅ **Contact Dynamics**: Friction coefficients, stiffness, damping
+✅ **Stability**: Troubleshooting jitter, sinking, drift
+✅ **Validation**: Benchmark tests, system identification
+
+These configurations ensure your simulated humanoid behaves realistically. Next, we'll put everything together in a complete lab!
+
+## Next Steps
+
+Continue to [Simulated Humanoid Lab](./simulated-humanoid-lab.mdx) for a hands-on project integrating all Module 2 concepts.
+
+---
+
+## References
+
+[^1]: Koenig, N., & Howard, A. (2004). Design and use paradigms for Gazebo, an open-source multi-robot simulator. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, 2149-2154.
+
+[^2]: Mamou, K., & Ghorbel, F. (2009). A simple and efficient approach for 3D mesh approximate convex decomposition. *IEEE International Conference on Image Processing*, 3501-3504.
+
+[^3]: Featherstone, R. (2014). *Rigid Body Dynamics Algorithms*. Springer. ISBN: 978-1-4899-7560-7.
+
+[^4]: Walker, M. W., & Orin, D. E. (1982). Efficient dynamic computer simulation of robotic mechanisms. *Journal of Dynamic Systems, Measurement, and Control*, 104(3), 205-211.

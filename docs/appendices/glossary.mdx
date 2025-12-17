@@ -1,0 +1,233 @@
+# Appendix B: Glossary of Terms
+
+Comprehensive glossary of technical terms used throughout this book.
+
+## A
+
+**Action** (ROS 2): Communication pattern for long-running tasks that provide feedback and can be preempted. Used for navigation and manipulation.
+
+**Action Grounding**: Process of mapping abstract language descriptions to concrete robot commands or primitives.
+
+**AMCL (Adaptive Monte Carlo Localization)**: Probabilistic localization algorithm that estimates robot's pose using particle filters.
+
+**APA (American Psychological Association)**: Citation style used for academic references throughout this book.
+
+**API (Application Programming Interface)**: Set of protocols for building software applications.
+
+**Autonomous Navigation**: Robot's ability to move from one location to another without human intervention, avoiding obstacles.
+
+## B
+
+**Behavior Tree**: Hierarchical control structure for robot decision-making, composed of actions, conditions, and control flow nodes.
+
+**Bounding Box**: Rectangular region in an image that encloses a detected object, typically output from object detection algorithms.
+
+## C
+
+**CLIP (Contrastive Language-Image Pre-training)**: OpenAI model that maps images and text to shared embedding space for visual grounding.
+
+**Collision Detection**: Process of identifying when two or more objects in simulation or real world come into contact.
+
+**Costmap**: 2D grid representing navigable and non-navigable areas, used by Nav2 for path planning.
+
+**CUDA (Compute Unified Device Architecture)**: NVIDIA's parallel computing platform for GPU acceleration.
+
+**cuVSLAM**: CUDA-accelerated Visual SLAM implementation from NVIDIA Isaac ROS.
+
+## D
+
+**DDS (Data Distribution Service)**: Middleware standard used by ROS 2 for real-time publish-subscribe communication.
+
+**Deictic Reference**: Language that requires context to interpret, such as "that object" or "over there."
+
+**Digital Twin**: Virtual replica of physical system used for simulation, testing, and development before real-world deployment.
+
+**DNN (Deep Neural Network)**: Multi-layer neural network for complex pattern recognition tasks.
+
+**DOF (Degrees of Freedom)**: Number of independent parameters defining configuration of a mechanical system (e.g., robot joints).
+
+**Domain Randomization**: Training technique that varies simulation parameters to improve sim-to-real transfer robustness.
+
+## E
+
+**Embodied Intelligence**: Intelligence emerging from interaction between agent's body, brain, and environment.
+
+**End Effector**: Device at end of robotic manipulator (e.g., gripper, tool) that interacts with environment.
+
+## F
+
+**FP16/INT8**: Reduced-precision number formats for faster neural network inference (16-bit float, 8-bit integer).
+
+**Foxglove Studio**: Web-based visualization and debugging tool for ROS and robotics data.
+
+## G
+
+**Gazebo**: Open-source 3D robotics simulator with physics engines for testing algorithms.
+
+**GPT-4 (Generative Pre-trained Transformer 4)**: Large language model from OpenAI used for task planning and reasoning.
+
+**Grasp Pose**: 6DOF pose (position + orientation) for robot end effector to successfully grasp an object.
+
+## H
+
+**Humanoid Robot**: Robot with human-like form factor, typically including head, torso, arms, and legs.
+
+## I
+
+**IMU (Inertial Measurement Unit)**: Sensor measuring acceleration, angular velocity, and sometimes magnetic field.
+
+**Isaac Gym**: NVIDIA's massively parallel physics simulation for reinforcement learning training.
+
+**Isaac ROS**: NVIDIA's GPU-accelerated ROS 2 packages for perception and navigation.
+
+**Isaac Sim**: NVIDIA's photorealistic robotics simulation platform built on Omniverse.
+
+## J
+
+**Jetson**: NVIDIA's embedded computing platform for edge AI and robotics (e.g., Jetson AGX Orin).
+
+**Joint**: Connection between two robot links allowing relative motion (revolute, prismatic, fixed, etc.).
+
+## K
+
+**Kill Switch**: Emergency stop mechanism for immediately halting robot motion for safety.
+
+## L
+
+**LiDAR (Light Detection and Ranging)**: Sensor that measures distance using laser light, creating 3D point clouds.
+
+**Link**: Rigid body component of robot's kinematic chain.
+
+**LLaVA (Large Language and Vision Assistant)**: Multimodal model combining language understanding with visual perception.
+
+**LLM (Large Language Model)**: Neural network trained on vast text corpora for language understanding and generation.
+
+**Localization**: Process of determining robot's position and orientation within environment.
+
+## M
+
+**Manipulation**: Robot's ability to physically interact with objects (grasping, placing, pushing, etc.).
+
+**MDX**: Markdown with JSX components, used by Docusaurus for documentation pages.
+
+**MoveIt**: ROS motion planning framework for robotic manipulators.
+
+**Multi-Modal Fusion**: Combining multiple input modalities (voice, vision, gesture) for unified robot control.
+
+## N
+
+**Nav2 (Navigation2)**: ROS 2 navigation stack for autonomous mobile robots.
+
+**Node** (ROS 2): Independent process that performs computation and communicates via topics, services, or actions.
+
+**NLP (Natural Language Processing)**: AI field focused on interaction between computers and human language.
+
+## O
+
+**Object Detection**: Computer vision task of identifying and localizing objects in images.
+
+**Odometry**: Estimate of robot's position change over time based on motion sensors (wheel encoders, visual odometry, etc.).
+
+**Omniverse**: NVIDIA's platform for 3D design collaboration and simulation.
+
+**OpenAI**: AI research organization creating GPT-4, CLIP, Whisper, and other models.
+
+## P
+
+**Path Planning**: Process of finding collision-free path from start to goal configuration.
+
+**PhysX**: NVIDIA's physics engine used in Isaac Sim for realistic simulation.
+
+**Point Cloud**: Set of 3D points representing object or environment surface, typically from LiDAR or depth cameras.
+
+**PPO (Proximal Policy Optimization)**: Reinforcement learning algorithm for training robot policies.
+
+**Prompt Engineering**: Craft of designing input prompts to elicit desired outputs from large language models.
+
+## Q
+
+**QoS (Quality of Service)**: ROS 2 configuration for reliability, durability, and timeliness of message delivery.
+
+**Quantization**: Reducing precision of neural network weights (e.g., FP32 → INT8) for faster inference.
+
+## R
+
+**rclpy**: ROS 2 Python client library for creating nodes, publishers, and subscribers.
+
+**ReAct (Reasoning and Acting)**: LLM framework alternating between reasoning (thinking) and acting (executing actions).
+
+**RealSense**: Intel's depth camera product line (e.g., D435i) for 3D perception.
+
+**Reinforcement Learning (RL)**: Machine learning paradigm where agent learns through trial and error with rewards.
+
+**RGB-D**: Image data containing both color (RGB) and depth (D) information.
+
+**RLHF (Reinforcement Learning from Human Feedback)**: Training method using human preferences to refine model behavior.
+
+**ROS 2 (Robot Operating System 2)**: Open-source middleware framework for robot software development.
+
+**RT-2 (Robotic Transformer 2)**: Vision-language-action model from Google for robot control.
+
+**RTX Ray Tracing**: NVIDIA's real-time ray tracing technology for photorealistic rendering.
+
+**RViz**: ROS visualization tool for displaying sensor data, robot state, and planning results.
+
+## S
+
+**SayCan**: Google's approach combining LLMs with value functions for robotic task planning.
+
+**SLAM (Simultaneous Localization and Mapping)**: Process of building map while localizing robot within it.
+
+**Sim-to-Real Transfer**: Applying policies trained in simulation to real-world robots.
+
+**State Machine**: Control structure with discrete states and transitions between them based on conditions.
+
+**Stereo Vision**: 3D perception using two cameras with overlapping fields of view.
+
+## T
+
+**TensorRT**: NVIDIA's inference optimizer for deep learning models on GPUs.
+
+**TF (Transform)**: Coordinate frame transformations in ROS for relating sensor and robot link positions.
+
+**Topic** (ROS 2): Named communication channel for publish-subscribe messaging between nodes.
+
+**TTS (Text-to-Speech)**: Converting text to synthesized spoken audio for robot feedback.
+
+**Twist**: ROS message type representing linear and angular velocity commands.
+
+## U
+
+**URDF (Unified Robot Description Format)**: XML format for representing robot kinematic and dynamic properties.
+
+**USD (Universal Scene Description)**: Pixar's file format for 3D scenes, used by Isaac Sim and Omniverse.
+
+## V
+
+**VAD (Voice Activity Detection)**: Algorithm detecting presence of human speech in audio signal.
+
+**Visual Grounding**: Mapping language descriptions to objects or regions in images.
+
+**Visual SLAM**: SLAM using camera images as primary sensor input.
+
+**VLA (Vision-Language-Action)**: AI systems integrating visual perception, language understanding, and robotic action.
+
+**VRAM (Video Random Access Memory)**: GPU memory for storing textures, models, and computation data.
+
+## W
+
+**Whisper**: OpenAI's speech recognition model supporting 99 languages with high accuracy.
+
+## Y
+
+**YAML (YAML Ain't Markup Language)**: Human-readable data serialization format used for ROS configuration files.
+
+**YOLO (You Only Look Once)**: Real-time object detection algorithm family (YOLOv8 used in this book).
+
+## Z
+
+**Zero-Shot Learning**: Model's ability to handle tasks without explicit training examples.
+
+---
+
+This glossary covers key terms from robotics, ROS 2, computer vision, natural language processing, and AI used throughout the book. For detailed explanations, refer to the specific module where each term is introduced.

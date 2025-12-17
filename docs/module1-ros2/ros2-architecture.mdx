@@ -1,0 +1,409 @@
+# ROS 2 Architecture: Nodes, Topics, Services, and Actions
+
+Understanding ROS 2's architecture is fundamental to building effective robotic systems. This section covers the core communication patterns that enable distributed robotics applications.
+
+## The ROS 2 Computational Graph
+
+ROS 2 applications consist of a **computational graph** of processes (nodes) exchanging messages. Think of it as a network where:
+
+- **Nodes** are the vertices (individual programs)
+- **Communication channels** are the edges (topics, services, actions)
+- **Messages** are the data flowing through the network
+
+This distributed architecture allows:
+- Components to run on different computers
+- Parallel execution for better performance
+- Easy replacement and testing of individual components
+- Language interoperability (Python, C++, etc.)
+
+## Nodes: The Building Blocks
+
+### What is a Node?
+
+A **node** is an independent process that performs a specific computational task. Examples include:
+
+- **Camera driver node**: Publishes camera images
+- **Object detector node**: Processes images, publishes detected objects
+- **Motion planner node**: Computes trajectories
+- **Motor controller node**: Sends commands to actuators
+
+### Node Design Philosophy
+
+Good ROS 2 nodes follow the **single responsibility principle**:
+
+✅ **Good**: Separate nodes for camera driver, image processing, object detection
+❌ **Bad**: One monolithic node doing everything
+
+Benefits of small, focused nodes:
+- **Modularity**: Easy to replace or upgrade components
+- **Testability**: Test each component independently
+- **Reusability**: Use the same perception node with different robots
+- **Debugging**: Isolate problems to specific nodes
+
+### Node Lifecycle
+
+ROS 2 introduces **managed nodes** with explicit lifecycle states[^1]:
+
+1. **Unconfigured**: Node exists but resources not allocated
+2. **Inactive**: Resources allocated but not processing data
+3. **Active**: Fully operational
+4. **Finalized**: Cleanup complete, node shutting down
+
+This allows controlled startup and shutdown of complex robotic systems.
+
+## Topics: Asynchronous Pub/Sub Communication
+
+### What are Topics?
+
+**Topics** implement publish-subscribe messaging:
+
+- **Publishers** send messages to a topic (many-to-one or one-to-many)
+- **Subscribers** receive messages from a topic
+- Communication is **asynchronous** (fire-and-forget)
+- Messages are **typed** (e.g., sensor_msgs/Image, geometry_msgs/Twist)
+
+### Use Cases for Topics
+
+Topics are ideal for:
+- **Sensor data streams**: Camera images, LiDAR scans, IMU readings
+- **Continuous state**: Robot pose, joint positions
+- **Command streams**: Velocity commands for motors
+- **Status updates**: Battery level, temperature
+
+### Example: Camera Pipeline
+
+```
+[Camera Driver Node]
+        |
+        | publishes to: /camera/image_raw (sensor_msgs/Image)
+        |
+        v
+[Image Processor Node]
+        |
+        | publishes to: /camera/image_processed
+        |
+        v
+[Object Detector Node]
+        |
+        | publishes to: /detections (vision_msgs/Detection2DArray)
+        |
+        v
+[Decision Making Node]
+```
+
+### Quality of Service (QoS)
+
+ROS 2 allows configurable QoS policies for topics[^2]:
+
+**Reliability**:
+- **Reliable**: Guaranteed delivery (like TCP) - use for commands
+- **Best Effort**: May drop messages (like UDP) - use for high-frequency sensor data
+
+**Durability**:
+- **Volatile**: Only current subscribers receive messages
+- **Transient Local**: New subscribers get last N messages (latch behavior)
+
+**History**:
+- **Keep Last N**: Buffer size for messages
+- **Keep All**: Store all messages (memory permitting)
+
+Example configuration for different scenarios:
+
+| Scenario | Reliability | Durability | History |
+|----------|-------------|------------|---------|
+| Camera images (30 Hz) | Best Effort | Volatile | Keep Last 1 |
+| Motor commands | Reliable | Volatile | Keep Last 10 |
+| Map data | Reliable | Transient Local | Keep Last 1 |
+| High-priority alerts | Reliable | Transient Local | Keep All |
+
+## Services: Synchronous Request/Response
+
+### What are Services?
+
+**Services** implement request-response communication:
+
+- **Client** sends a request and **waits** for response (blocking)
+- **Server** processes request and returns response
+- Communication is **synchronous** (client blocks until response)
+- One request, one response (1:1 communication)
+
+### Use Cases for Services
+
+Services are ideal for:
+- **Configuration**: Setting parameters, calibrating sensors
+- **Queries**: "What's the current robot state?"
+- **One-time commands**: "Take a picture now"
+- **Coordination**: "Are you ready to proceed?"
+
+### Example: Motion Planning Service
+
+```python
+# Service definition (GetMotionPlan.srv)
+geometry_msgs/PoseStamped start_pose
+geometry_msgs/PoseStamped goal_pose
+---
+trajectory_msgs/JointTrajectory trajectory
+bool success
+string message
+```
+
+**Client** (motion planning request):
+```python
+import rclpy
+from motion_planning_msgs.srv import GetMotionPlan
+
+# Create service client
+client = node.create_client(GetMotionPlan, '/plan_motion')
+
+# Send request
+request = GetMotionPlan.Request()
+request.start_pose = current_pose
+request.goal_pose = target_pose
+
+# Wait for response (blocking)
+future = client.call_async(request)
+rclpy.spin_until_future_complete(node, future)
+
+if future.result().success:
+    execute_trajectory(future.result().trajectory)
+```
+
+### Service vs Topic: When to Use Which?
+
+| Use Topic When... | Use Service When... |
+|-------------------|---------------------|
+| Continuous data stream | One-time request |
+| Many producers or consumers | Exactly one server |
+| Fire-and-forget | Need confirmation/response |
+| High frequency (10+ Hz) | Infrequent (less than 1 Hz) |
+| OK if some messages lost | Must receive response |
+
+## Actions: Long-Running Tasks with Feedback
+
+### What are Actions?
+
+**Actions** are for tasks that:
+- Take significant time to complete (seconds to minutes)
+- Provide ongoing feedback during execution
+- Can be cancelled/preempted mid-execution
+
+Actions combine topics and services:
+- **Goal** (service-like): Send goal to action server
+- **Feedback** (topic-like): Periodic updates during execution
+- **Result** (service-like): Final outcome when complete
+- **Cancel** (service-like): Abort the action
+
+### Use Cases for Actions
+
+Actions are ideal for:
+- **Navigation**: "Go to this location" (can be cancelled, provides progress)
+- **Manipulation**: "Pick up this object" (provides grasp attempt feedback)
+- **Trajectory execution**: "Follow this path" (reports current waypoint)
+- **Any multi-step process**: Configuration, calibration, learning
+
+### Example: Navigation Action
+
+```
+[Goal Request]
+    Navigation Client → Navigation Server
+    "Navigate to coordinates (x=5, y=3)"
+
+[Feedback] (published periodically during navigation)
+    Navigation Server → Navigation Client
+    "Current position: (x=2, y=1), 40% complete"
+    "Current position: (x=3.5, y=2), 70% complete"
+
+[Result] (when finished)
+    Navigation Server → Navigation Client
+    "Goal reached successfully"
+
+[OR Cancel Request] (if obstacles detected)
+    Navigation Client → Navigation Server
+    "Abort navigation"
+```
+
+### Action Lifecycle
+
+1. **Send Goal**: Client sends goal to server
+2. **Accept/Reject**: Server decides whether to accept
+3. **Execution**: Server works on goal, sends feedback
+4. **Completion**: Server returns result (succeeded/failed/cancelled)
+
+### Python Action Example
+
+```python
+import rclpy
+from rclpy.action import ActionClient
+from nav2_msgs.action import NavigateToPose
+
+# Create action client
+action_client = ActionClient(node, NavigateToPose, '/navigate_to_pose')
+
+# Define feedback callback
+def feedback_callback(feedback_msg):
+    print(f"Distance remaining: {feedback_msg.feedback.distance_remaining}")
+
+# Send goal
+goal_msg = NavigateToPose.Goal()
+goal_msg.pose.pose.position.x = 5.0
+goal_msg.pose.pose.position.y = 3.0
+
+future = action_client.send_goal_async(
+    goal_msg,
+    feedback_callback=feedback_callback
+)
+
+# Wait for completion
+rclpy.spin_until_future_complete(node, future)
+result = future.result().get_result()
+```
+
+## Communication Patterns Summary
+
+### Quick Reference
+
+| Pattern | Sync/Async | Use For | Example |
+|---------|------------|---------|---------|
+| **Topic** | Async | Continuous data streams | Camera images, laser scans |
+| **Service** | Sync | One-time requests | Set parameter, query state |
+| **Action** | Async + Feedback | Long tasks | Navigate to goal, pick object |
+
+### Combining Patterns
+
+Real robotic systems combine all three patterns:
+
+```
+Perception Pipeline:
+  Topics: /camera/image → /detections → /object_poses
+
+Planning & Control:
+  Action: /navigate_to_pose (with continuous feedback)
+  Topics: /cmd_vel (velocity commands to robot)
+  Service: /clear_costmap (reset obstacle map)
+
+Monitoring:
+  Topics: /diagnostics, /battery_state
+  Service: /get_robot_state (query current mode)
+```
+
+## DDS: The Middleware Under the Hood
+
+ROS 2 uses **DDS (Data Distribution Service)** as its middleware layer[^3]:
+
+**Benefits of DDS**:
+- **Discovery**: Nodes find each other automatically (no roscore!)
+- **Quality of Service**: Configurable reliability, durability, latency
+- **Security**: Built-in encryption and authentication
+- **Performance**: Optimized for real-time systems
+- **Interoperability**: Works across different DDS vendors
+
+**DDS Implementations**:
+- **Fast DDS** (default): eProsima's implementation
+- **CycloneDDS**: Eclipse foundation (alternative)
+- **Connext DDS**: RTI's commercial implementation
+
+You typically don't need to interact with DDS directly—ROS 2 abstracts it away—but understanding it helps with debugging network issues.
+
+## ROS 2 Parameters
+
+**Parameters** are configuration values for nodes:
+
+- Set at node startup or changed dynamically
+- Strongly typed (int, double, string, bool, arrays)
+- Can be loaded from YAML files
+- Changed via command line or other nodes
+
+```python
+# Declare and get parameter
+node.declare_parameter('max_speed', 1.0)
+max_speed = node.get_parameter('max_speed').value
+
+# Parameter callback for dynamic updates
+def param_callback(params):
+    for param in params:
+        if param.name == 'max_speed':
+            max_speed = param.value
+    return SetParametersResult(successful=True)
+
+node.add_on_set_parameters_callback(param_callback)
+```
+
+Parameters are useful for:
+- Hardware configuration (sensor IDs, motor gains)
+- Algorithm tuning (PID gains, thresholds)
+- Behavior switches (enable/disable features)
+
+## Namespaces and Remapping
+
+ROS 2 uses **namespaces** for multi-robot systems:
+
+```bash
+# Robot 1
+ros2 run my_pkg my_node --ros-args -r __ns:=/robot1
+
+# Robot 2
+ros2 run my_pkg my_node --ros-args -r __ns:=/robot2
+
+# Now topics are:
+# /robot1/camera/image
+# /robot2/camera/image
+```
+
+**Remapping** allows renaming topics/services without changing code:
+
+```bash
+ros2 run my_pkg my_node --ros-args -r /input_topic:=/camera/image
+```
+
+This enables flexible system composition without modifying source code.
+
+## Best Practices
+
+### Node Design
+- ✅ Single responsibility per node
+- ✅ Use parameters for configuration
+- ✅ Implement managed lifecycle for critical nodes
+- ✅ Include proper error handling
+
+### Topic Design
+- ✅ Use standard message types when possible
+- ✅ Choose appropriate QoS for use case
+- ✅ Keep publish rates consistent
+- ✅ Document expected message rates
+
+### Service Design
+- ✅ Keep processing time short (under 100ms ideal)
+- ✅ Return meaningful error messages
+- ✅ Use timeouts in clients
+- ✅ Consider actions for longer operations
+
+### Action Design
+- ✅ Provide meaningful feedback
+- ✅ Support cancellation gracefully
+- ✅ Define clear success/failure criteria
+- ✅ Include progress percentage when possible
+
+## Summary
+
+You've learned the four fundamental communication patterns in ROS 2:
+
+1. **Nodes**: Independent processes with single responsibilities
+2. **Topics**: Asynchronous streaming data (pub/sub)
+3. **Services**: Synchronous request/response
+4. **Actions**: Long-running tasks with feedback
+
+These building blocks enable you to create modular, scalable robotic systems. Next, we'll learn how to implement these patterns in Python using rclpy!
+
+## Next Steps
+
+Continue to [Python Integration with ROS 2 (rclpy)](./rclpy-integration.mdx) to start writing ROS 2 code.
+
+---
+
+## References
+
+[^1]: Open Robotics. (2022). Managed Nodes (Lifecycle). *ROS 2 Documentation*. https://design.ros2.org/articles/node_lifecycle.html
+
+[^2]: Open Robotics. (2022). About Quality of Service Settings. *ROS 2 Documentation*. https://docs.ros.org/en/humble/Concepts/About-Quality-of-Service-Settings.html
+
+[^3]: Pardo-Castellote, G. (2003). OMG Data-Distribution Service: Architectural overview. *Proceedings of the 23rd International Conference on Distributed Computing Systems Workshops*, 200-206.

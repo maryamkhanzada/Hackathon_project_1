@@ -1,0 +1,587 @@
+# Implementation Guide
+
+This step-by-step guide walks you through building the complete autonomous humanoid assistant from scratch. Follow each phase systematically to ensure proper integration.
+
+## Phase 1: Environment Setup
+
+### 1.1 Install System Dependencies
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install ROS 2 Humble (if not already installed)
+sudo apt install software-properties-common
+sudo add-apt-repository universe
+sudo apt update
+sudo apt install curl -y
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+sudo apt update
+sudo apt install ros-humble-desktop -y
+
+# Install Nav2
+sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup -y
+
+# Install MoveIt2 (for manipulation)
+sudo apt install ros-humble-moveit -y
+
+# Install additional tools
+sudo apt install python3-colcon-common-extensions python3-rosdep -y
+```
+
+### 1.2 Install Isaac Sim
+
+```bash
+# Download Omniverse Launcher
+wget https://install.launcher.omniverse.nvidia.com/installers/omniverse-launcher-linux.AppImage
+
+# Make executable
+chmod +x omniverse-launcher-linux.AppImage
+
+# Run and install Isaac Sim from the launcher
+./omniverse-launcher-linux.AppImage
+```
+
+Follow GUI instructions to install Isaac Sim 2023.1.1 or later.
+
+### 1.3 Install Python Dependencies
+
+```bash
+# Create virtual environment
+python3 -m venv ~/capstone_venv
+source ~/capstone_venv/bin/activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install openai==1.3.0        # GPT-4 API
+pip install openai-whisper       # Speech recognition
+pip install torch torchvision    # PyTorch
+pip install transformers         # HuggingFace models
+pip install clip                 # CLIP for visual grounding
+pip install ultralytics          # YOLO for object detection
+pip install opencv-python        # Computer vision
+pip install pyaudio              # Audio capture
+pip install gtts                 # Text-to-speech
+pip install python-dotenv        # Environment variables
+```
+
+### 1.4 Configure OpenAI API
+
+```bash
+# Create .env file in workspace root
+cat > ~/capstone_ws/.env << EOF
+OPENAI_API_KEY=your_openai_api_key_here
+EOF
+
+# Secure the file
+chmod 600 ~/capstone_ws/.env
+```
+
+Get your API key from: https://platform.openai.com/api-keys
+
+## Phase 2: Create ROS 2 Workspace
+
+### 2.1 Workspace Structure
+
+```bash
+# Create workspace
+mkdir -p ~/capstone_ws/src
+cd ~/capstone_ws
+
+# Initialize rosdep
+sudo rosdep init
+rosdep update
+```
+
+### 2.2 Create Packages
+
+```bash
+cd ~/capstone_ws/src
+
+# Core integration package
+ros2 pkg create --build-type ament_python humanoid_capstone \
+  --dependencies rclpy std_msgs sensor_msgs geometry_msgs nav_msgs \
+  vision_msgs tf2_ros
+
+# Voice control package
+ros2 pkg create --build-type ament_python voice_control \
+  --dependencies rclpy std_msgs
+
+# Visual perception package
+ros2 pkg create --build-type ament_python visual_perception \
+  --dependencies rclpy sensor_msgs vision_msgs cv_bridge
+
+# Task planning package
+ros2 pkg create --build-type ament_python task_planning \
+  --dependencies rclpy std_msgs
+
+# Action execution package
+ros2 pkg create --build-type ament_python action_executor \
+  --dependencies rclpy nav2_msgs geometry_msgs
+```
+
+### 2.3 Package Organization
+
+```
+~/capstone_ws/
+├── src/
+│   ├── humanoid_capstone/         # Main integration package
+│   │   ├── launch/
+│   │   │   ├── full_system.launch.py
+│   │   │   ├── simulation.launch.py
+│   │   │   └── perception.launch.py
+│   │   ├── config/
+│   │   │   ├── nav2_params.yaml
+│   │   │   ├── moveit_config.yaml
+│   │   │   └── sensors.yaml
+│   │   ├── urdf/
+│   │   │   └── humanoid_robot.urdf
+│   │   └── scripts/
+│   │       └── system_monitor.py
+│   ├── voice_control/              # Whisper speech recognition
+│   │   └── voice_control/
+│   │       ├── whisper_node.py
+│   │       └── wake_word_detector.py
+│   ├── visual_perception/          # Isaac ROS + CLIP
+│   │   └── visual_perception/
+│   │       ├── object_detector.py
+│   │       ├── visual_grounding.py
+│   │       └── slam_interface.py
+│   ├── task_planning/              # GPT-4 planner
+│   │   └── task_planning/
+│   │       ├── llm_planner.py
+│   │       ├── action_validator.py
+│   │       └── dialogue_manager.py
+│   └── action_executor/            # Navigation + manipulation
+│       └── action_executor/
+│           ├── navigator.py
+│           ├── manipulator.py
+│           └── state_machine.py
+└── .env                            # API keys
+```
+
+## Phase 3: Implement Core Nodes
+
+### 3.1 Voice Recognition Node
+
+Create `voice_control/voice_control/whisper_node.py`:
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import whisper
+import pyaudio
+import numpy as np
+import threading
+
+class WhisperNode(Node):
+    def __init__(self):
+        super().__init__('whisper_node')
+
+        self.declare_parameter('model_size', 'small')
+        model_size = self.get_parameter('model_size').value
+
+        self.get_logger().info(f'Loading Whisper {model_size} model...')
+        self.model = whisper.load_model(model_size)
+
+        self.command_pub = self.create_publisher(String, '/voice_command', 10)
+
+        self.RATE = 16000
+        self.CHUNK = 1024
+        self.audio = pyaudio.PyAudio()
+
+        self.is_listening = True
+        self.listen_thread = threading.Thread(target=self.listen_loop, daemon=True)
+        self.listen_thread.start()
+
+        self.get_logger().info('Whisper Node ready')
+
+    def listen_loop(self):
+        while self.is_listening and rclpy.ok():
+            transcript = self.capture_and_transcribe(duration=3.0)
+
+            if transcript.strip():
+                self.get_logger().info(f'Heard: "{transcript}"')
+                msg = String()
+                msg.data = transcript
+                self.command_pub.publish(msg)
+
+    def capture_and_transcribe(self, duration):
+        stream = self.audio.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.RATE,
+            input=True,
+            frames_per_buffer=self.CHUNK
+        )
+
+        frames = []
+        for _ in range(0, int(self.RATE / self.CHUNK * duration)):
+            data = stream.read(self.CHUNK, exception_on_overflow=False)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+
+        audio_data = np.frombuffer(b''.join(frames), dtype=np.int16)
+        audio_data = audio_data.astype(np.float32) / 32768.0
+
+        result = self.model.transcribe(audio_data, fp16=False)
+        return result["text"].strip()
+
+def main():
+    rclpy.init()
+    node = WhisperNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+Make executable:
+```bash
+chmod +x ~/capstone_ws/src/voice_control/voice_control/whisper_node.py
+```
+
+### 3.2 Task Planning Node
+
+Create `task_planning/task_planning/llm_planner.py`:
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import openai
+import json
+import os
+from dotenv import load_dotenv
+
+class LLMPlannerNode(Node):
+    def __init__(self):
+        super().__init__('llm_planner')
+
+        # Load API key
+        load_dotenv()
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+
+        self.command_sub = self.create_subscription(
+            String, '/voice_command', self.command_callback, 10
+        )
+
+        self.plan_pub = self.create_publisher(String, '/task_plan', 10)
+
+        self.get_logger().info('LLM Planner Node ready')
+
+    def command_callback(self, msg):
+        command = msg.data
+        self.get_logger().info(f'Planning for: "{command}"')
+
+        plan = self.generate_plan(command)
+
+        plan_msg = String()
+        plan_msg.data = json.dumps(plan)
+        self.plan_pub.publish(plan_msg)
+
+    def generate_plan(self, command):
+        prompt = f"""
+        You are a robot task planner.
+
+        User command: "{command}"
+
+        Available actions:
+        - navigate(location: str)
+        - detect_objects()
+        - grasp(object: str)
+        - place(location: str)
+
+        Generate JSON plan:
+        {{"steps": [{{"action": "...", "params": {{...}}}}]}}
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": "You are a helpful robot assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+
+        return json.loads(response.choices[0].message.content)
+
+def main():
+    rclpy.init()
+    node = LLMPlannerNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+### 3.3 Visual Perception Node
+
+Create `visual_perception/visual_perception/object_detector.py`:
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+from cv_bridge import CvBridge
+from ultralytics import YOLO
+
+class ObjectDetectorNode(Node):
+    def __init__(self):
+        super().__init__('object_detector')
+
+        self.get_logger().info('Loading YOLO model...')
+        self.model = YOLO('yolov8n.pt')
+
+        self.bridge = CvBridge()
+
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10
+        )
+
+        self.detections_pub = self.create_publisher(
+            Detection2DArray, '/detections', 10
+        )
+
+        self.get_logger().info('Object Detector Node ready')
+
+    def image_callback(self, msg):
+        cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+        results = self.model(cv_image)[0]
+
+        detection_array = Detection2DArray()
+        detection_array.header = msg.header
+
+        for box in results.boxes:
+            detection = Detection2D()
+
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            detection.bbox.center.x = (x1 + x2) / 2
+            detection.bbox.center.y = (y1 + y2) / 2
+            detection.bbox.size_x = x2 - x1
+            detection.bbox.size_y = y2 - y1
+
+            hypothesis = ObjectHypothesisWithPose()
+            hypothesis.id = str(int(box.cls.item()))
+            hypothesis.score = float(box.conf.item())
+            detection.results.append(hypothesis)
+
+            detection_array.detections.append(detection)
+
+        self.detections_pub.publish(detection_array)
+
+def main():
+    rclpy.init()
+    node = ObjectDetectorNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Phase 4: Create Isaac Sim Scene
+
+### 4.1 Scene Setup Script
+
+Create `~/capstone_ws/isaac_sim_scene.py`:
+
+```python
+from omni.isaac.kit import SimulationApp
+simulation_app = SimulationApp({"headless": False})
+
+from omni.isaac.core import World
+from omni.isaac.core.objects import DynamicCuboid, VisualCuboid
+from omni.isaac.core.utils.stage import add_reference_to_stage
+import numpy as np
+
+# Create world
+world = World()
+world.scene.add_default_ground_plane()
+
+# Add humanoid robot (use your URDF or pre-built asset)
+robot_path = "/World/Humanoid"
+add_reference_to_stage(
+    usd_path="omniverse://localhost/NVIDIA/Assets/Characters/Replicants/replicant_rig.usd",
+    prim_path=robot_path
+)
+
+# Create environment
+# Kitchen area
+table = VisualCuboid(
+    prim_path="/World/Table",
+    position=[2.0, 0.0, 0.4],
+    scale=[0.8, 0.6, 0.02],
+    color=[0.6, 0.4, 0.2]
+)
+
+# Objects on table
+for i, color in enumerate([(1,0,0), (0,1,0), (0,0,1)]):
+    DynamicCuboid(
+        prim_path=f"/World/Object_{i}",
+        position=[2.0, -0.2 + i*0.2, 0.45],
+        scale=[0.04, 0.04, 0.06],
+        color=color
+    )
+
+# Enable ROS 2 bridge
+from omni.isaac.ros2_bridge import ROS2Bridge
+ros_bridge = ROS2Bridge()
+
+# Camera
+from omni.isaac.core.utils.prims import create_prim
+camera = create_prim(
+    "/World/Camera",
+    "Camera",
+    position=[1.0, 0.0, 1.5],
+    orientation=[0.0, 0.0, 0.0, 1.0]
+)
+
+# Run
+world.reset()
+
+while simulation_app.is_running():
+    world.step(render=True)
+
+simulation_app.close()
+```
+
+## Phase 5: Launch File Configuration
+
+### 5.1 Main Launch File
+
+Create `humanoid_capstone/launch/full_system.launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+
+    return LaunchDescription([
+        # Voice recognition
+        Node(
+            package='voice_control',
+            executable='whisper_node.py',
+            name='whisper_node',
+            parameters=[{'model_size': 'small'}]
+        ),
+
+        # Task planner
+        Node(
+            package='task_planning',
+            executable='llm_planner.py',
+            name='llm_planner'
+        ),
+
+        # Visual perception
+        Node(
+            package='visual_perception',
+            executable='object_detector.py',
+            name='object_detector'
+        ),
+
+        # Action executor
+        Node(
+            package='action_executor',
+            executable='navigator.py',
+            name='navigator'
+        ),
+
+        # Nav2
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
+            ),
+            launch_arguments={'params_file': './config/nav2_params.yaml'}.items()
+        ),
+    ])
+```
+
+## Phase 6: Build and Test
+
+### 6.1 Build Workspace
+
+```bash
+cd ~/capstone_ws
+colcon build --symlink-install
+
+# Source workspace
+source install/setup.bash
+```
+
+### 6.2 Launch System
+
+```bash
+# Terminal 1: Isaac Sim
+python ~/capstone_ws/isaac_sim_scene.py
+
+# Terminal 2: ROS 2 system
+source ~/capstone_ws/install/setup.bash
+ros2 launch humanoid_capstone full_system.launch.py
+```
+
+### 6.3 Test Voice Commands
+
+```bash
+# In a third terminal
+ros2 topic echo /voice_command
+
+# Speak into microphone: "Go to the kitchen"
+# Should see transcription appear
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**1. NVIDIA driver error**:
+```bash
+nvidia-smi  # Verify GPU detected
+# If not, reinstall NVIDIA drivers
+```
+
+**2. ROS 2 nodes not starting**:
+```bash
+ros2 node list  # Check running nodes
+ros2 topic list  # Check topics
+```
+
+**3. OpenAI API errors**:
+```bash
+# Verify API key
+echo $OPENAI_API_KEY
+# Test with curl
+curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"
+```
+
+**4. Audio input not working**:
+```bash
+arecord -l  # List audio devices
+# Test recording
+arecord -d 5 test.wav
+aplay test.wav
+```
+
+## Next Steps
+
+Continue to [Integration: ROS 2 + Isaac + VLA](./integration-ros2-isaac-vla.mdx) for detailed integration patterns!
+
+---
+
+## References
+
+[^1]: ROS 2 Documentation. (2024). *ROS 2 Humble Tutorials*. https://docs.ros.org/en/humble/
+
+[^2]: NVIDIA Corporation. (2024). *Isaac Sim Getting Started Guide*. https://docs.omniverse.nvidia.com/isaacsim/latest/

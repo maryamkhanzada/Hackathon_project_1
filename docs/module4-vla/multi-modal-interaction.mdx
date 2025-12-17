@@ -1,0 +1,663 @@
+# Multi-Modal Interaction
+
+Multi-modal systems combine **vision, language, and gestures** to enable natural human-robot communication. This section covers visual grounding, gesture recognition, spatial reasoning, and contextual understanding.
+
+## What is Multi-Modal Interaction?
+
+**Uni-modal**: Robot understands only one modality (e.g., voice commands)
+
+**Multi-modal**: Robot combines multiple input modalities:
+
+```
+User: "Pick up that object" [points at red cup]
+         ↓
+    ┌──────────────────────────────────┐
+    │  Voice: "Pick up that object"    │
+    │  Vision: [detects red cup, ...] │
+    │  Gesture: [pointing direction]   │
+    └──────────────┬───────────────────┘
+                   ↓
+         [Fuse modalities]
+                   ↓
+         Action: grasp(red_cup at x=0.5, y=0.3)
+```
+
+**Advantages**:
+✅ **Resolve ambiguity**: "that" requires visual context
+✅ **Natural communication**: Mimics human-human interaction
+✅ **Robustness**: Failure in one modality compensated by others
+✅ **Accessibility**: Users can choose preferred modality
+
+## Vision-Language Models (VLMs)
+
+VLMs understand both images and text.
+
+### CLIP (Contrastive Language-Image Pre-training)
+
+**CLIP** (OpenAI)[^1] maps images and text to shared embedding space.
+
+```python
+import torch
+import clip
+from PIL import Image
+
+# Load model
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess = clip.load("ViT-B/32", device=device)
+
+# Load image
+image = preprocess(Image.open("robot_scene.jpg")).unsqueeze(0).to(device)
+
+# Text prompts
+text_prompts = clip.tokenize([
+    "a red cup",
+    "a blue plate",
+    "a wooden table"
+]).to(device)
+
+# Compute embeddings
+with torch.no_grad():
+    image_features = model.encode_image(image)
+    text_features = model.encode_text(text_prompts)
+
+    # Compute similarity
+    logits_per_image = (image_features @ text_features.T) * 100
+    probs = logits_per_image.softmax(dim=-1).cpu().numpy()
+
+print("Label probabilities:", probs)
+# Output: [0.85, 0.10, 0.05] -> "red cup" most likely
+```
+
+### Visual Grounding with CLIP
+
+Map language descriptions to objects in scene:
+
+```python
+from ultralytics import YOLO
+import clip
+
+class VisualGroundingSystem:
+    def __init__(self):
+        self.detector = YOLO("yolov8n.pt")  # Object detection
+        self.clip_model, self.clip_preprocess = clip.load("ViT-B/32")
+
+    def ground_object(self, image, description):
+        """Find object matching description in image"""
+
+        # Detect all objects
+        detections = self.detector(image)[0]
+
+        # Crop each detected object
+        crops = []
+        boxes = []
+        for box in detections.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+            crop = image[y1:y2, x1:x2]
+            crops.append(self.clip_preprocess(Image.fromarray(crop)))
+            boxes.append((x1, y1, x2, y2))
+
+        if not crops:
+            return None
+
+        # Compute CLIP similarities
+        image_input = torch.stack(crops)
+        text_input = clip.tokenize([description])
+
+        with torch.no_grad():
+            image_features = self.clip_model.encode_image(image_input)
+            text_features = self.clip_model.encode_text(text_input)
+            similarities = (image_features @ text_features.T).squeeze()
+
+        # Select best match
+        best_idx = similarities.argmax().item()
+        best_box = boxes[best_idx]
+
+        return {
+            "bbox": best_box,
+            "confidence": similarities[best_idx].item(),
+            "description": description
+        }
+
+# Usage
+grounding = VisualGroundingSystem()
+
+import cv2
+image = cv2.imread("table_scene.jpg")
+
+# Ground "red cup"
+result = grounding.ground_object(image, "red cup")
+print(f"Found red cup at {result['bbox']} with confidence {result['confidence']:.2f}")
+```
+
+### LLaVA (Large Language and Vision Assistant)
+
+**LLaVA**[^2] is a multimodal LLM that can answer questions about images:
+
+```python
+from transformers import AutoProcessor, LlavaForConditionalGeneration
+from PIL import Image
+
+# Load model
+model = LlavaForConditionalGeneration.from_pretrained("llava-hf/llava-1.5-7b-hf")
+processor = AutoProcessor.from_pretrained("llava-hf/llava-1.5-7b-hf")
+
+# Load image
+image = Image.open("kitchen_scene.jpg")
+
+# Ask question
+prompt = "What objects are on the table?"
+
+inputs = processor(text=prompt, images=image, return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=100)
+response = processor.decode(outputs[0], skip_special_tokens=True)
+
+print(response)
+# Output: "On the table, there is a red cup, a blue plate, and a fork."
+```
+
+### GPT-4V (Vision) for Robotics
+
+**GPT-4 with vision**[^3] can describe scenes and reason spatially:
+
+```python
+import openai
+import base64
+
+def encode_image(image_path):
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+# Encode image
+image_base64 = encode_image("robot_workspace.jpg")
+
+# Ask GPT-4V
+response = openai.ChatCompletion.create(
+    model="gpt-4-vision-preview",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe the objects on the table and their spatial relationships."},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+            ]
+        }
+    ],
+    max_tokens=300
+)
+
+print(response.choices[0].message.content)
+# Output: "The red cup is to the left of the blue plate. The fork is on the plate. ..."
+```
+
+## Gesture Recognition
+
+### Hand Tracking with MediaPipe
+
+```python
+import mediapipe as mp
+import cv2
+import numpy as np
+
+class GestureRecognizer:
+    def __init__(self):
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.7
+        )
+
+    def detect_pointing(self, image):
+        """Detect pointing gesture and direction"""
+
+        # Convert to RGB
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Process
+        results = self.hands.process(image_rgb)
+
+        if not results.multi_hand_landmarks:
+            return None
+
+        # Get hand landmarks
+        hand_landmarks = results.multi_hand_landmarks[0]
+
+        # Extract key points
+        index_tip = hand_landmarks.landmark[8]  # Index finger tip
+        index_mcp = hand_landmarks.landmark[5]  # Index finger base
+        wrist = hand_landmarks.landmark[0]
+
+        # Compute pointing vector
+        pointing_vector = np.array([
+            index_tip.x - wrist.x,
+            index_tip.y - wrist.y
+        ])
+
+        # Check if pointing gesture (index extended, other fingers curled)
+        is_pointing = self.is_pointing_gesture(hand_landmarks)
+
+        if is_pointing:
+            # Convert to image coordinates
+            h, w = image.shape[:2]
+            pointing_pixel = (int(index_tip.x * w), int(index_tip.y * h))
+
+            return {
+                "gesture": "pointing",
+                "direction": pointing_vector,
+                "target_pixel": pointing_pixel
+            }
+
+        return None
+
+    def is_pointing_gesture(self, landmarks):
+        """Check if hand pose is pointing"""
+        # Index finger extended
+        index_extended = landmarks.landmark[8].y < landmarks.landmark[6].y
+
+        # Middle finger curled
+        middle_curled = landmarks.landmark[12].y > landmarks.landmark[10].y
+
+        return index_extended and middle_curled
+
+# Usage
+recognizer = GestureRecognizer()
+
+cap = cv2.VideoCapture(0)
+while True:
+    ret, frame = cap.read()
+    gesture = recognizer.detect_pointing(frame)
+
+    if gesture:
+        print(f"Pointing at: {gesture['target_pixel']}")
+        cv2.circle(frame, gesture['target_pixel'], 10, (0, 255, 0), -1)
+
+    cv2.imshow('Gesture', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+```
+
+### Deictic Gestures ("that", "this", "there")
+
+Combine pointing with language:
+
+```python
+class DeicticResolver:
+    def __init__(self):
+        self.gesture_recognizer = GestureRecognizer()
+        self.object_detector = YOLO("yolov8n.pt")
+
+    def resolve_deictic(self, image, command):
+        """
+        Resolve deictic references like "pick up that" with pointing
+
+        Args:
+            image: Camera image
+            command: Text command (e.g., "pick up that object")
+
+        Returns:
+            Identified object and location
+        """
+
+        # Detect gesture
+        gesture = self.gesture_recognizer.detect_pointing(image)
+
+        if not gesture:
+            return None  # No pointing detected
+
+        # Detect objects
+        detections = self.object_detector(image)[0]
+
+        # Find object closest to pointing direction
+        pointing_pixel = gesture['target_pixel']
+        closest_obj = None
+        min_distance = float('inf')
+
+        for box in detections.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+            center = ((x1 + x2) // 2, (y1 + y2) // 2)
+
+            # Distance from pointing pixel to object center
+            distance = np.sqrt((center[0] - pointing_pixel[0])**2 +
+                             (center[1] - pointing_pixel[1])**2)
+
+            if distance < min_distance:
+                min_distance = distance
+                closest_obj = {
+                    "bbox": (x1, y1, x2, y2),
+                    "center": center,
+                    "class": box.cls.item()
+                }
+
+        return closest_obj
+
+# Usage
+resolver = DeicticResolver()
+image = cv2.imread("scene.jpg")
+command = "pick up that"
+
+target = resolver.resolve_deictic(image, command)
+if target:
+    print(f"Target object at {target['center']}")
+```
+
+## Spatial Reasoning
+
+### Relative Positioning
+
+Handle commands like "to the left of the plate":
+
+```python
+class SpatialReasoner:
+    def __init__(self):
+        self.detector = YOLO("yolov8n.pt")
+
+    def find_object_by_relation(self, image, target_desc, relation, anchor_desc):
+        """
+        Find object based on spatial relation
+
+        Example: find_object_by_relation(image, "cup", "left of", "plate")
+        """
+
+        # Detect all objects
+        detections = self.detector(image)[0]
+
+        # Identify anchor object
+        anchor = self.find_object(image, anchor_desc)
+        if not anchor:
+            return None
+
+        anchor_center = anchor['center']
+
+        # Find candidates matching target description
+        candidates = []
+        for box in detections.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+            center = ((x1 + x2) // 2, (y1 + y2) // 2)
+
+            # Check spatial relation
+            if self.check_relation(center, anchor_center, relation):
+                candidates.append({
+                    "bbox": (x1, y1, x2, y2),
+                    "center": center,
+                    "class": box.cls.item()
+                })
+
+        # Return closest match
+        if candidates:
+            return min(candidates, key=lambda c: self.distance(c['center'], anchor_center))
+
+        return None
+
+    def check_relation(self, obj_pos, anchor_pos, relation):
+        """Check if spatial relation holds"""
+        dx = obj_pos[0] - anchor_pos[0]
+        dy = obj_pos[1] - anchor_pos[1]
+
+        if relation == "left of":
+            return dx < -50  # At least 50 pixels to the left
+        elif relation == "right of":
+            return dx > 50
+        elif relation == "above":
+            return dy < -50
+        elif relation == "below":
+            return dy > 50
+        elif relation == "near":
+            return np.sqrt(dx**2 + dy**2) < 100
+        else:
+            return False
+
+    def distance(self, pos1, pos2):
+        return np.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
+    def find_object(self, image, description):
+        # Use CLIP grounding from earlier
+        pass
+
+# Usage
+reasoner = SpatialReasoner()
+image = cv2.imread("table.jpg")
+
+# "Put the cup to the left of the plate"
+target = reasoner.find_object_by_relation(image, "cup", "left of", "plate")
+```
+
+## ROS 2 Multi-Modal Integration
+
+### System Architecture
+
+```
+┌────────────────────────────────────────────────┐
+│           Multi-Modal Fusion Node              │
+│  ┌──────────────────────────────────────────┐  │
+│  │  Input 1: /voice_command (String)       │  │
+│  │  Input 2: /camera/image (Image)         │  │
+│  │  Input 3: /gesture (Gesture msg)        │  │
+│  └──────────────────┬───────────────────────┘  │
+│                     ↓                           │
+│           [Fuse modalities with LLM]           │
+│                     ↓                           │
+│  Output: /grounded_command (GroundedCommand)   │
+└────────────────────┬───────────────────────────┘
+                     ↓
+         ┌──────────────────────┐
+         │  Action Executor     │
+         └──────────────────────┘
+```
+
+### Multi-Modal Fusion Node
+
+```python
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import openai
+import base64
+import json
+
+class MultiModalFusionNode(Node):
+    def __init__(self):
+        super().__init__('multimodal_fusion')
+
+        # State
+        self.latest_command = None
+        self.latest_image = None
+
+        # CV Bridge
+        self.bridge = CvBridge()
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String, '/voice_command', self.command_callback, 10
+        )
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10
+        )
+
+        # Publisher
+        self.grounded_pub = self.create_publisher(String, '/grounded_command', 10)
+
+        self.get_logger().info('Multi-Modal Fusion Node started')
+
+    def command_callback(self, msg):
+        self.latest_command = msg.data
+        self.get_logger().info(f'Voice command: "{self.latest_command}"')
+
+        # Fuse with vision
+        if self.latest_image is not None:
+            self.fuse_and_ground()
+
+    def image_callback(self, msg):
+        self.latest_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+    def fuse_and_ground(self):
+        """Fuse voice command with visual scene"""
+
+        # Encode image
+        _, buffer = cv2.imencode('.jpg', self.latest_image)
+        image_base64 = base64.b64encode(buffer).decode()
+
+        # Query GPT-4V
+        response = openai.ChatCompletion.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"""
+                            User command: "{self.latest_command}"
+
+                            Analyze the image and output JSON with:
+                            - target_object: name of object to interact with
+                            - target_location: bounding box [x1, y1, x2, y2] or center [x, y]
+                            - action: action to perform (pick, place, navigate)
+
+                            If command references "that", "this", or spatial relations, use the image to resolve.
+                            """
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                        }
+                    ]
+                }
+            ],
+            max_tokens=200
+        )
+
+        # Parse response
+        grounded_command = response.choices[0].message.content
+        self.get_logger().info(f'Grounded: {grounded_command}')
+
+        # Publish
+        msg = String()
+        msg.data = grounded_command
+        self.grounded_pub.publish(msg)
+
+def main():
+    rclpy.init()
+    node = MultiModalFusionNode()
+    rclpy.spin(node)
+    rclpy.shutdown()
+```
+
+## Contextual Understanding
+
+### Dialogue State Tracking
+
+Maintain context across multiple turns:
+
+```python
+class DialogueManager:
+    def __init__(self):
+        self.context = []  # Conversation history
+
+    def process_turn(self, user_input, perception):
+        """Process conversational turn with context"""
+
+        # Add to context
+        self.context.append({
+            "role": "user",
+            "content": user_input,
+            "perception": perception
+        })
+
+        # Query LLM with full context
+        messages = [
+            {"role": "system", "content": "You are a helpful robot assistant."}
+        ]
+
+        for turn in self.context:
+            messages.append({
+                "role": turn["role"],
+                "content": turn["content"]
+            })
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages
+        )
+
+        robot_response = response.choices[0].message.content
+
+        # Add robot response to context
+        self.context.append({
+            "role": "assistant",
+            "content": robot_response
+        })
+
+        return robot_response
+
+# Usage
+manager = DialogueManager()
+
+# Turn 1
+user1 = "Show me the red objects"
+perception1 = ["red_cup", "red_block", "blue_plate"]
+response1 = manager.process_turn(user1, perception1)
+# Robot: "I see a red cup and a red block."
+
+# Turn 2 (uses context)
+user2 = "Pick up the cup"  # "the cup" refers to red cup from previous turn
+response2 = manager.process_turn(user2, perception1)
+# Robot: "Picking up the red cup."
+```
+
+## Failure Handling
+
+### Clarification Requests
+
+When ambiguous, ask user:
+
+```python
+def handle_ambiguity(command, detections):
+    """Request clarification if command is ambiguous"""
+
+    if "pick up" in command and "that" in command:
+        # Count possible targets
+        if len(detections) > 1:
+            # Multiple candidates - ask for clarification
+            return {
+                "status": "clarification_needed",
+                "message": "I see multiple objects. Which one do you mean? Please point or describe it."
+            }
+
+    return {"status": "ok"}
+```
+
+## Summary
+
+Multi-modal interaction enables:
+
+✅ **Natural communication** combining voice, vision, and gestures
+✅ **Visual grounding** with CLIP and VLMs
+✅ **Deictic resolution** ("that", "this") with pointing
+✅ **Spatial reasoning** ("left of", "near")
+✅ **Contextual understanding** across dialogue turns
+
+**Best practices**:
+- Use **VLMs** (GPT-4V, LLaVA) for visual understanding
+- Implement **gesture recognition** for deictic references
+- Maintain **dialogue state** for multi-turn conversations
+- Request **clarification** when ambiguous
+- Combine with **safety validation** before executing actions
+
+## Next Steps
+
+Continue to [Voice-Guided Lab](./voice-guided-lab.mdx) to build a complete multi-modal assistant!
+
+---
+
+## References
+
+[^1]: Radford, A., et al. (2021). Learning Transferable Visual Models From Natural Language Supervision. *ICML 2021*.
+
+[^2]: Liu, H., et al. (2023). Visual Instruction Tuning. *NeurIPS 2023*.
+
+[^3]: OpenAI. (2023). GPT-4 Technical Report. *arXiv preprint arXiv:2303.08774*.
+
+[^4]: Shridhar, M., et al. (2022). CLIPort: What and Where Pathways for Robotic Manipulation. *CoRL 2021*.

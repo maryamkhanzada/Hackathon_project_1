@@ -1,0 +1,687 @@
+# Simulating Sensors
+
+Sensors are the **eyes and ears** of robots. This section covers how to simulate realistic cameras, LiDAR, IMUs, and depth sensors in both Gazebo and Unity, complete with noise models that match real hardware.
+
+## Why Sensor Simulation Matters
+
+Accurate sensor simulation is critical because:
+
+- **Algorithms depend on sensor characteristics**: Computer vision expects specific camera parameters
+- **Noise affects performance**: Real sensors have measurement errors
+- **Sim-to-real transfer**: Models trained in simulation must handle real-world sensor imperfections
+- **Safety testing**: Test edge cases (sensor failures, occlusions) without hardware risk
+
+The goal is to make simulated sensors **indistinguishable from real ones** to perception algorithms.
+
+## Sensor Fundamentals
+
+### Sensor Model Components
+
+Every sensor simulation includes:
+
+1. **Geometry**: Physical placement and orientation on robot
+2. **Intrinsic Parameters**: Internal characteristics (resolution, FOV, range)
+3. **Update Rate**: How frequently measurements are published (Hz)
+4. **Noise Model**: Statistical error characteristics
+5. **Output Format**: ROS message type or Unity data structure
+
+### Common Noise Models
+
+**Gaussian Noise** (most common):
+```
+measurement = true_value + N(μ=0, σ²)
+```
+Where σ (sigma) is standard deviation.
+
+**Uniform Noise**:
+```
+measurement = true_value + U(-a, +a)
+```
+Bounded random error.
+
+**Outliers** (occasional large errors):
+```python
+if random() < outlier_probability:
+    measurement = true_value + large_random_offset
+else:
+    measurement = true_value + small_gaussian_noise
+```
+
+**Temporal Correlation** (drift):
+```python
+# Values drift slowly over time
+drift += N(0, drift_sigma) * dt
+measurement = true_value + drift + N(0, measurement_sigma)
+```
+
+## Camera Sensors
+
+### Monocular RGB Cameras
+
+Most common sensor for humanoid vision.
+
+#### Gazebo SDF Camera Configuration
+
+```xml
+<sensor name="front_camera" type="camera">
+  <camera>
+    <!-- Resolution -->
+    <image>
+      <width>1920</width>
+      <height>1080</height>
+      <format>R8G8B8</format>  <!-- RGB8 -->
+    </image>
+
+    <!-- Field of View -->
+    <horizontal_fov>1.396</horizontal_fov>  <!-- 80 degrees in radians -->
+
+    <!-- Clipping planes -->
+    <clip>
+      <near>0.1</near>   <!-- 10cm minimum range -->
+      <far>100.0</far>   <!-- 100m maximum range -->
+    </clip>
+
+    <!-- Lens distortion (realistic cameras) -->
+    <distortion>
+      <k1>-0.23</k1>  <!-- Radial distortion -->
+      <k2>0.06</k2>
+      <k3>0.0</k3>
+      <p1>-0.0007</p1>  <!-- Tangential distortion -->
+      <p2>-0.0005</p2>
+      <center>0.5 0.5</center>
+    </distortion>
+
+    <!-- Noise model -->
+    <noise>
+      <type>gaussian</type>
+      <mean>0.0</mean>
+      <stddev>0.007</stddev>  <!-- Per-channel noise -->
+    </noise>
+  </camera>
+
+  <!-- Update rate -->
+  <update_rate>30</update_rate>  <!-- 30 FPS -->
+
+  <!-- ROS 2 publishing -->
+  <plugin filename="libgazebo_ros_camera.so" name="camera_controller">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/image_raw:=camera/image_raw</remapping>
+      <remapping>~/camera_info:=camera/camera_info</remapping>
+    </ros>
+    <frame_name>camera_optical_frame</frame_name>
+  </plugin>
+</sensor>
+```
+
+#### Unity Camera Setup
+
+```csharp
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Sensor;
+
+public class ROSCameraPublisher : MonoBehaviour
+{
+    private Camera cam;
+    private ROSConnection ros;
+    private string topicName = "/humanoid/camera/image_raw";
+
+    // Camera parameters
+    public int width = 1920;
+    public int height = 1080;
+    public float fov = 80f;  // degrees
+    public float publishRate = 30f;  // Hz
+
+    // Noise parameters
+    public float noiseStdDev = 0.007f;
+
+    private float timeElapsed;
+
+    void Start()
+    {
+        // Get or create camera
+        cam = GetComponent<Camera>();
+        if (cam == null) cam = gameObject.AddComponent<Camera>();
+
+        // Configure camera
+        cam.fieldOfView = fov;
+        cam.nearClipPlane = 0.1f;
+        cam.farClipPlane = 100f;
+
+        // Create render texture
+        RenderTexture rt = new RenderTexture(width, height, 24);
+        cam.targetTexture = rt;
+
+        // Connect to ROS
+        ros = ROSConnection.GetOrCreateInstance();
+        ros.RegisterPublisher<ImageMsg>(topicName);
+    }
+
+    void Update()
+    {
+        timeElapsed += Time.deltaTime;
+
+        if (timeElapsed >= 1f / publishRate)
+        {
+            PublishImage();
+            timeElapsed = 0;
+        }
+    }
+
+    void PublishImage()
+    {
+        // Render camera view
+        RenderTexture currentRT = RenderTexture.active;
+        RenderTexture.active = cam.targetTexture;
+        cam.Render();
+
+        // Read pixels
+        Texture2D image = new Texture2D(width, height, TextureFormat.RGB24, false);
+        image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+
+        // Add Gaussian noise
+        if (noiseStdDev > 0)
+        {
+            AddGaussianNoise(image, noiseStdDev);
+        }
+
+        image.Apply();
+
+        // Convert to ROS message
+        ImageMsg msg = new ImageMsg
+        {
+            header = new RosMessageTypes.Std.HeaderMsg
+            {
+                stamp = new RosMessageTypes.BuiltinInterfaces.TimeMsg
+                {
+                    sec = (int)Time.time,
+                    nanosec = (uint)((Time.time % 1) * 1e9)
+                },
+                frame_id = "camera_optical_frame"
+            },
+            height = (uint)height,
+            width = (uint)width,
+            encoding = "rgb8",
+            step = (uint)(width * 3),
+            data = image.GetRawTextureData()
+        };
+
+        // Publish
+        ros.Publish(topicName, msg);
+
+        RenderTexture.active = currentRT;
+        Destroy(image);
+    }
+
+    void AddGaussianNoise(Texture2D texture, float stdDev)
+    {
+        Color[] pixels = texture.GetPixels();
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i].r = Mathf.Clamp01(pixels[i].r + GaussianRandom(0, stdDev));
+            pixels[i].g = Mathf.Clamp01(pixels[i].g + GaussianRandom(0, stdDev));
+            pixels[i].b = Mathf.Clamp01(pixels[i].b + GaussianRandom(0, stdDev));
+        }
+        texture.SetPixels(pixels);
+    }
+
+    float GaussianRandom(float mean, float stdDev)
+    {
+        float u1 = Random.value;
+        float u2 = Random.value;
+        float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Sin(2.0f * Mathf.PI * u2);
+        return mean + stdDev * randStdNormal;
+    }
+}
+```
+
+### Depth Cameras (RGB-D)
+
+Combine color and depth (e.g., Intel RealSense, Kinect).
+
+#### Gazebo Depth Camera
+
+```xml
+<sensor name="depth_camera" type="depth">
+  <camera>
+    <image>
+      <width>640</width>
+      <height>480</height>
+    </image>
+    <clip>
+      <near>0.3</near>   <!-- Typical depth camera minimum range -->
+      <far>10.0</far>    <!-- Maximum range -->
+    </clip>
+  </camera>
+
+  <!-- Depth-specific noise -->
+  <noise>
+    <type>gaussian</type>
+    <mean>0.0</mean>
+    <stddev>0.01</stddev>  <!-- 1cm depth noise -->
+  </noise>
+
+  <update_rate>30</update_rate>
+
+  <plugin filename="libgazebo_ros_camera.so" name="depth_camera_controller">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/depth/image_raw:=depth_camera/depth/image_raw</remapping>
+      <remapping>~/points:=depth_camera/points</remapping>  <!-- Point cloud -->
+    </ros>
+  </plugin>
+</sensor>
+```
+
+**Depth Noise Characteristics**:
+- **Near range (0.3-1m)**: σ ≈ 1-2mm
+- **Mid range (1-3m)**: σ ≈ 5-15mm
+- **Far range (3-10m)**: σ ≈ 40mm+
+
+Noise increases **quadratically** with distance:
+```python
+depth_stddev = 0.0012 + 0.0019 * (distance ** 2)
+```
+
+## LiDAR (Laser Range Finders)
+
+LiDAR provides precise distance measurements via laser pulses.
+
+### 2D LiDAR (Planar Scan)
+
+Common for navigation (e.g., SICK, Hokuyo).
+
+#### Gazebo 2D LiDAR
+
+```xml
+<sensor name="laser" type="gpu_lidar">  <!-- gpu_lidar for performance -->
+  <lidar>
+    <!-- Scan configuration -->
+    <scan>
+      <horizontal>
+        <samples>720</samples>      <!-- Points per scan -->
+        <resolution>1</resolution>  <!-- 1 = max resolution -->
+        <min_angle>-3.14159</min_angle>  <!-- -180 degrees -->
+        <max_angle>3.14159</max_angle>   <!-- +180 degrees -->
+      </horizontal>
+    </scan>
+
+    <!-- Range limits -->
+    <range>
+      <min>0.1</min>   <!-- 10cm minimum -->
+      <max>30.0</max>  <!-- 30m maximum -->
+      <resolution>0.01</resolution>  <!-- 1cm resolution -->
+    </range>
+
+    <!-- Measurement noise -->
+    <noise>
+      <type>gaussian</type>
+      <mean>0.0</mean>
+      <stddev>0.01</stddev>  <!-- 1cm noise -->
+    </noise>
+  </lidar>
+
+  <update_rate>10</update_rate>  <!-- 10 Hz scan rate -->
+
+  <plugin filename="libgazebo_ros_ray_sensor.so" name="laser_controller">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/out:=scan</remapping>
+    </ros>
+    <output_type>sensor_msgs/LaserScan</output_type>
+    <frame_name>laser_frame</frame_name>
+  </plugin>
+</sensor>
+```
+
+### 3D LiDAR (Spinning Multi-Beam)
+
+For full 3D environment mapping (e.g., Velodyne, Ouster).
+
+#### Gazebo 3D LiDAR
+
+```xml
+<sensor name="lidar_3d" type="gpu_lidar">
+  <lidar>
+    <scan>
+      <!-- Horizontal (azimuth) -->
+      <horizontal>
+        <samples>1800</samples>  <!-- 0.2 degree resolution -->
+        <min_angle>-3.14159</min_angle>
+        <max_angle>3.14159</max_angle>
+      </horizontal>
+
+      <!-- Vertical (elevation) -->
+      <vertical>
+        <samples>16</samples>  <!-- 16-beam LiDAR -->
+        <min_angle>-0.2618</min_angle>  <!-- -15 degrees -->
+        <max_angle>0.2618</max_angle>   <!-- +15 degrees -->
+      </vertical>
+    </scan>
+
+    <range>
+      <min>0.5</min>
+      <max>100.0</max>
+      <resolution>0.02</resolution>
+    </range>
+
+    <noise>
+      <type>gaussian</type>
+      <mean>0.0</mean>
+      <stddev>0.02</stddev>
+    </noise>
+  </lidar>
+
+  <update_rate>10</update_rate>
+
+  <plugin filename="libgazebo_ros_ray_sensor.so" name="lidar_3d_controller">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/out:=lidar_3d/points</remapping>
+    </ros>
+    <output_type>sensor_msgs/PointCloud2</output_type>
+  </plugin>
+</sensor>
+```
+
+## Inertial Measurement Units (IMUs)
+
+IMUs measure **orientation, angular velocity, and linear acceleration**.
+
+### IMU Components
+
+1. **Accelerometer**: Measures linear acceleration (including gravity)
+2. **Gyroscope**: Measures angular velocity
+3. **Magnetometer**: Measures magnetic field (compass heading)
+
+### Gazebo IMU Configuration
+
+```xml
+<sensor name="imu" type="imu">
+  <imu>
+    <!-- Accelerometer noise -->
+    <linear_acceleration>
+      <x>
+        <noise type="gaussian">
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>  <!-- m/s² -->
+          <bias_mean>0.05</bias_mean>  <!-- Constant offset -->
+          <bias_stddev>0.001</bias_stddev>
+        </noise>
+      </x>
+      <!-- Repeat for y, z -->
+      <y><noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise></y>
+      <z><noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise></z>
+    </linear_acceleration>
+
+    <!-- Gyroscope noise -->
+    <angular_velocity>
+      <x>
+        <noise type="gaussian">
+          <mean>0.0</mean>
+          <stddev>0.001</stddev>  <!-- rad/s -->
+          <bias_mean>0.0001</bias_mean>
+          <bias_stddev>0.00001</bias_stddev>
+        </noise>
+      </x>
+      <y><noise type="gaussian"><mean>0.0</mean><stddev>0.001</stddev></noise></y>
+      <z><noise type="gaussian"><mean>0.0</mean><stddev>0.001</stddev></noise></z>
+    </angular_velocity>
+
+    <!-- Orientation (computed from gyro integration) -->
+    <orientation_reference_frame>
+      <localization>ENU</localization>  <!-- East-North-Up -->
+    </orientation_reference_frame>
+  </imu>
+
+  <update_rate>100</update_rate>  <!-- 100 Hz typical for IMU -->
+
+  <plugin filename="libgazebo_ros_imu_sensor.so" name="imu_controller">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/out:=imu/data</remapping>
+    </ros>
+    <frame_name>imu_link</frame_name>
+  </plugin>
+</sensor>
+```
+
+### Unity IMU Implementation
+
+```csharp
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Sensor;
+
+public class ROSImuSensor : MonoBehaviour
+{
+    private ROSConnection ros;
+    private string topicName = "/humanoid/imu/data";
+    public float publishRate = 100f;  // Hz
+
+    // Noise parameters (realistic IMU)
+    public float accelNoise = 0.01f;    // m/s²
+    public float accelBias = 0.05f;
+    public float gyroNoise = 0.001f;    // rad/s
+    public float gyroBias = 0.0001f;
+
+    private Vector3 accelBiasOffset;
+    private Vector3 gyroBiasOffset;
+    private Vector3 lastVelocity;
+    private float timeElapsed;
+
+    void Start()
+    {
+        ros = ROSConnection.GetOrCreateInstance();
+        ros.RegisterPublisher<ImuMsg>(topicName);
+
+        // Initialize biases (constant for this session)
+        accelBiasOffset = new Vector3(
+            Random.Range(-accelBias, accelBias),
+            Random.Range(-accelBias, accelBias),
+            Random.Range(-accelBias, accelBias)
+        );
+        gyroBiasOffset = new Vector3(
+            Random.Range(-gyroBias, gyroBias),
+            Random.Range(-gyroBias, gyroBias),
+            Random.Range(-gyroBias, gyroBias)
+        );
+
+        lastVelocity = GetComponent<Rigidbody>()?.velocity ?? Vector3.zero;
+    }
+
+    void FixedUpdate()
+    {
+        timeElapsed += Time.fixedDeltaTime;
+
+        if (timeElapsed >= 1f / publishRate)
+        {
+            PublishIMU();
+            timeElapsed = 0;
+        }
+    }
+
+    void PublishIMU()
+    {
+        Rigidbody rb = GetComponent<Rigidbody>();
+
+        // Compute linear acceleration (includes gravity)
+        Vector3 accel = rb != null ? (rb.velocity - lastVelocity) / Time.fixedDeltaTime : Vector3.zero;
+        accel += Physics.gravity;  // Add gravity
+        lastVelocity = rb?.velocity ?? Vector3.zero;
+
+        // Add noise and bias
+        accel += accelBiasOffset + new Vector3(
+            GaussianRandom(0, accelNoise),
+            GaussianRandom(0, accelNoise),
+            GaussianRandom(0, accelNoise)
+        );
+
+        // Angular velocity from Unity
+        Vector3 angularVel = rb?.angularVelocity ?? Vector3.zero;
+        angularVel += gyroBiasOffset + new Vector3(
+            GaussianRandom(0, gyroNoise),
+            GaussianRandom(0, gyroNoise),
+            GaussianRandom(0, gyroNoise)
+        );
+
+        // Orientation from Unity transform
+        Quaternion orientation = transform.rotation;
+
+        // Create ROS message
+        ImuMsg msg = new ImuMsg
+        {
+            header = new RosMessageTypes.Std.HeaderMsg
+            {
+                stamp = ROSClock.Now(),
+                frame_id = "imu_link"
+            },
+            orientation = new RosMessageTypes.Geometry.QuaternionMsg
+            {
+                x = orientation.x,
+                y = orientation.y,
+                z = orientation.z,
+                w = orientation.w
+            },
+            angular_velocity = new RosMessageTypes.Geometry.Vector3Msg
+            {
+                x = angularVel.x,
+                y = angularVel.y,
+                z = angularVel.z
+            },
+            linear_acceleration = new RosMessageTypes.Geometry.Vector3Msg
+            {
+                x = accel.x,
+                y = accel.y,
+                z = accel.z
+            }
+        };
+
+        ros.Publish(topicName, msg);
+    }
+
+    float GaussianRandom(float mean, float stdDev)
+    {
+        float u1 = Random.value;
+        float u2 = Random.value;
+        float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Sin(2.0f * Mathf.PI * u2);
+        return mean + stdDev * randStdNormal;
+    }
+}
+```
+
+## Force/Torque Sensors
+
+Measure contact forces at joints or feet (critical for walking).
+
+### Gazebo Force/Torque Sensor
+
+```xml
+<sensor name="foot_force" type="force_torque">
+  <force_torque>
+    <frame>child</frame>  <!-- Measure forces in child link frame -->
+    <measure_direction>child_to_parent</measure_direction>
+
+    <!-- Noise -->
+    <force>
+      <x><noise type="gaussian"><stddev>0.1</stddev></noise></x>
+      <y><noise type="gaussian"><stddev>0.1</stddev></noise></y>
+      <z><noise type="gaussian"><stddev>0.1</stddev></noise></z>
+    </force>
+    <torque>
+      <x><noise type="gaussian"><stddev>0.01</stddev></noise></x>
+      <y><noise type="gaussian"><stddev>0.01</stddev></noise></y>
+      <z><noise type="gaussian"><stddev>0.01</stddev></noise></z>
+    </torque>
+  </force_torque>
+
+  <update_rate>100</update_rate>
+
+  <plugin filename="libgazebo_ros_ft_sensor.so" name="ft_sensor">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>~/out:=foot/force_torque</remapping>
+    </ros>
+  </plugin>
+</sensor>
+```
+
+## Realistic Noise Parameters
+
+### Typical Sensor Characteristics
+
+| Sensor | Parameter | Typical Value |
+|--------|-----------|---------------|
+| **RGB Camera** | Noise σ | 0.005-0.01 (per channel) |
+| | Update Rate | 30-60 Hz |
+| **Depth Camera** | Near noise (0.5m) | 1-2mm |
+| | Far noise (5m) | 40mm |
+| | Update Rate | 30 Hz |
+| **2D LiDAR** | Range noise σ | 10-30mm |
+| | Angular resolution | 0.25-1.0° |
+| | Update Rate | 10-40 Hz |
+| **3D LiDAR** | Range noise σ | 20-50mm |
+| | Vertical beams | 16-128 |
+| | Update Rate | 10-20 Hz |
+| **IMU (Accel)** | Noise σ | 0.01-0.05 m/s² |
+| | Bias | 0.05-0.2 m/s² |
+| | Update Rate | 100-400 Hz |
+| **IMU (Gyro)** | Noise σ | 0.001-0.01 rad/s |
+| | Bias drift | 0.0001-0.001 rad/s |
+| | Update Rate | 100-400 Hz |
+| **Force/Torque** | Force noise σ | 0.1-1.0 N |
+| | Torque noise σ | 0.01-0.1 N⋅m |
+| | Update Rate | 100-1000 Hz |
+
+### Matching Real Hardware
+
+To match a specific sensor (e.g., Intel RealSense D435):
+
+1. **Read datasheet**: Find noise specifications
+2. **Measure empirically**: Capture data in controlled environment
+3. **Analyze statistics**: Compute mean, σ, bias from measurements
+4. **Configure simulation**: Set matching parameters
+5. **Validate**: Compare simulated and real data distributions
+
+Example validation:
+```python
+# Compare histograms of depth measurements
+real_data = load_real_sensor_log()
+sim_data = load_simulation_log()
+
+plt.hist(real_data, bins=50, alpha=0.5, label='Real')
+plt.hist(sim_data, bins=50, alpha=0.5, label='Sim')
+plt.legend()
+plt.show()
+```
+
+## Summary
+
+You've learned how to simulate realistic sensors for humanoid robots:
+
+✅ **RGB Cameras**: Resolution, FOV, distortion, noise
+✅ **Depth Cameras**: Range-dependent noise, point clouds
+✅ **2D/3D LiDAR**: Scan patterns, ray casting, GPU acceleration
+✅ **IMUs**: Accelerometer, gyroscope, bias, drift
+✅ **Force/Torque**: Contact sensing for walking
+✅ **Noise Models**: Gaussian, bias, outliers
+✅ **Gazebo & Unity**: Configuration examples for both simulators
+
+These sensors feed the perception stack in Module 3. Next, we'll configure physics for stable simulation!
+
+## Next Steps
+
+Continue to [Collisions & Dynamics](./collisions-dynamics.mdx) to tune physics parameters for realistic robot behavior.
+
+---
+
+## References
+
+[^1]: Diankov, R., & Kuffner, J. (2008). OpenRAVE: A planning architecture for autonomous robotics. *Robotics Institute, Pittsburgh, PA, Tech. Rep. CMU-RI-TR-08-34*, 79.
+
+[^2]: Fong, T., Nourbakhsh, I., & Dautenhahn, K. (2003). A survey of socially interactive robots. *Robotics and Autonomous Systems*, 42(3-4), 143-166.
+
+[^3]: Siciliano, B., & Khatib, O. (Eds.). (2016). *Springer Handbook of Robotics*. Springer. ISBN: 978-3-319-32552-1.
+
+[^4]: Thrun, S., Burgard, W., & Fox, D. (2005). *Probabilistic Robotics*. MIT Press. ISBN: 978-0-262-20162-9.
