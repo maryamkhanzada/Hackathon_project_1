@@ -385,7 +385,7 @@ Warnings: 2 (deprecated config options, expected)
 2. Update `docusaurus.config.js` with your username
 3. Enable GitHub Pages in repository settings
 4. Push to `main` branch
-5. Verify deployment at `https://YOUR-USERNAME.github.io/ai-humanoid-robotics-book/`
+5. Verify deployment at `https://maryamkhanzada.github.io/ai-humanoid-robotics-book/`
 
 **Expected Result**: Site loads successfully with all content accessible
 
@@ -668,7 +668,7 @@ GIT_USER=<username> npm run deploy
 
 ### Deployment URLs (Examples)
 - Development: `http://localhost:3000/ai-humanoid-robotics-book/`
-- Production: `https://YOUR-USERNAME.github.io/ai-humanoid-robotics-book/`
+- Production: `https://maryamkhanzada.github.io/ai-humanoid-robotics-book/`
 - Custom Domain: `https://your-domain.com/` (optional)
 
 ---

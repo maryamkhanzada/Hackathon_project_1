@@ -18,9 +18,9 @@ Edit `docusaurus.config.js` and update the following fields:
 ```javascript
 module.exports = {
   // ...
-  url: 'https://YOUR-GITHUB-USERNAME.github.io',
+  url: 'https://maryamkhanzada.github.io',
   baseUrl: '/ai-humanoid-robotics-book/',
-  organizationName: 'YOUR-GITHUB-USERNAME',
+  organizationName: 'maryamkhanzada',
   projectName: 'ai-humanoid-robotics-book',
   // ...
 };
@@ -76,7 +76,7 @@ The repository includes a GitHub Actions workflow (`.github/workflows/deploy.yml
 2. Push to `main` branch
 3. Check workflow status: **Actions** tab
 4. Wait 2-5 minutes for deployment
-5. Visit: `https://YOUR-USERNAME.github.io/ai-humanoid-robotics-book/`
+5. Visit: `https://maryamkhanzada.github.io/ai-humanoid-robotics-book/`
 
 ### 5. Verify Deployment
 
@@ -272,7 +272,7 @@ Use services like:
 2. **Build artifacts**: Available in `gh-pages` branch
 3. **Local backup**:
    ```bash
-   git clone --mirror https://github.com/YOUR-USERNAME/ai-humanoid-robotics-book.git
+   git clone --mirror https://github.com/maryamkhanzada/ai-humanoid-robotics-book.git
    ```
 
 ## Continuous Updates

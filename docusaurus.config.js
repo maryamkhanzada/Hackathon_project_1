@@ -14,12 +14,13 @@ const config = {
   url: 'https://maryamkhanzada.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/ai-humanoid-robotics-book/',
+  baseUrl:  '/Hackathon_project_1/',
+
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'maryamkhanzada', // Usually your GitHub org/user name.
-  projectName: 'ai-humanoid-robotics-book', // Usually your repo name.
+  projectName: 'Hackathon_project_1', // Usually your repo name.
 
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
