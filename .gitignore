@@ -59,3 +59,11 @@ out/
 # Docusaurus specific
 .docusaurus/
 .cache-loader
+
+# Python / Backend RAG Ingestion
+backend/.env
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/dist/
+backend/*.egg-info/
